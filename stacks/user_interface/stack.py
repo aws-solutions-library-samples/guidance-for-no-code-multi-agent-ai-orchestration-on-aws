@@ -129,6 +129,24 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
         if ui_access_mode not in valid_modes:
             raise ValueError(f"Invalid UIAccessMode: {ui_access_mode}. Must be one of {valid_modes}")
 
+    def _get_allowed_domains_string(self) -> str:
+        """
+        Get ALLOWED_AWS_DOMAINS as a comma-separated string.
+        Converts list from config to string format required by environment variables.
+        """
+        allowed_domains = self.get_optional_config('AllowedAwsDomains', '.elb.amazonaws.com,.on.aws,.amazonaws.com')
+        
+        # If it's already a string, return it
+        if isinstance(allowed_domains, str):
+            return allowed_domains
+        
+        # If it's a list, convert to comma-separated string
+        if isinstance(allowed_domains, list):
+            return ','.join(allowed_domains)
+        
+        # Fallback to default
+        return '.elb.amazonaws.com,.on.aws,.amazonaws.com'
+
     def _create_ui_fargate_service(self, 
                                    project_name: str, 
                                    cluster: ecs.Cluster, 
@@ -199,7 +217,7 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
                     "RATE_LIMIT_WINDOW_MS": str(self.get_optional_config('RateLimitWindowMs', 900000)),
                     "RATE_LIMIT_MAX_REQUESTS": str(self.get_optional_config('RateLimitMaxRequests', 100)),
                     # AWS Infrastructure Domain Whitelist (for VPC Lattice, ALB URLs)
-                    "ALLOWED_AWS_DOMAINS": self.get_optional_config('AllowedAwsDomains', '.elb.amazonaws.com,.on.aws,.amazonaws.com'),
+                    "ALLOWED_AWS_DOMAINS": self._get_allowed_domains_string(),
                     # CORS Origins - Will be updated with CloudFront URL after distribution creation
                     # For private mode, use the ALB URL or custom domain
                     "ALLOWED_ORIGINS": ""  # Placeholder, will be updated below

@@ -295,58 +295,32 @@ if (process.env.NODE_ENV === 'production') {
   sessionConfig.cookie.sameSite = 'lax';
   
   // Do NOT set explicit domain - let browser use request origin (CloudFront domain)
-  console.log('\n========== SESSION CONFIGURATION ==========');
-  console.log('[SESSION] Environment: PRODUCTION');
-  console.log('[SESSION] Configuration applied:', {
-    secure: true,
-    sameSite: 'lax',
-    domain: 'auto (browser default)',
-    httpOnly: true,
-    maxAge: '24 hours',
-    path: '/'
-  });
-  console.log('===========================================\n');
+  console.log('[SESSION] Production: secure=true, sameSite=lax, httpOnly=true');
 } else {
-  // Development: Only allow HTTP (secure=false) if running on true localhost
-  // SECURITY FIX: Enforce secure cookies unless explicitly on localhost
-  const isLocalhost =
-    process.env.HOST?.match(/^(localhost|127\.0\.0\.1)$/) ||
-    (process.env.HOST === undefined && (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined));
-  
+  // Development: Only allow HTTP (secure=false) if running on true localhost (127.0.0.1 or localhost HOST or origin)
+  // Only disable secure cookies for explicit, trusted local development.
+  const hostHeader = (process.env.HOST || '').toLowerCase();
+  const isLocalhost = (
+    hostHeader === 'localhost' ||
+    hostHeader === '127.0.0.1' ||
+    (process.env.HOST === undefined && (
+      process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined
+    ))
+  );
+
   if (isLocalhost) {
+    // SECURITY WARNING: Cookies sent over HTTP are vulnerable to interception!
+    // Only allow insecure cookies for true localhost development. Never set secure=false outside this case.
     sessionConfig.cookie.secure = false; // Allow HTTP only on localhost
     sessionConfig.cookie.sameSite = 'lax'; // Allow cross-port requests
     sessionConfig.cookie.domain = 'localhost'; // Explicit domain for dev
-    console.log('\n========== SESSION CONFIGURATION ==========');
-    console.log('[SESSION] Environment: DEVELOPMENT (LOCALHOST)');
-    console.log('[SESSION] Configuration applied:', {
-      secure: false,
-      sameSite: 'lax',
-      domain: 'localhost',
-      httpOnly: true,
-      maxAge: '24 hours',
-      path: '/'
-    });
-    console.log('===========================================\n');
   } else {
-    // If not truly localhost, enforce secure cookies to prevent accidental leaks!
-    // SECURITY: This prevents cleartext cookie transmission in non-localhost environments
+    // Outside trusted localhost, always enforce secure cookies!
+    // This prevents cleartext cookie transmission and mitigates session hijacking risk.
     sessionConfig.cookie.secure = true;
     sessionConfig.cookie.sameSite = 'lax';
     // Remove explicit domain for broader compatibility
     delete sessionConfig.cookie.domain;
-    console.warn('[SESSION][SECURITY] Not localhost - secure cookies enforced for development!');
-    console.log('\n========== SESSION CONFIGURATION ==========');
-    console.log('[SESSION] Environment: DEVELOPMENT (NOT LOCALHOST)');
-    console.log('[SESSION] Configuration applied:', {
-      secure: true,
-      sameSite: 'lax',
-      domain: 'N/A',
-      httpOnly: true,
-      maxAge: '24 hours',
-      path: '/'
-    });
-    console.log('===========================================\n');
   }
 }
 
@@ -440,7 +414,6 @@ if (process.env.NODE_ENV === 'production') {
 // Proxy routes for Configuration API with Bearer token forwarding
 app.get('/api/config/agents', async (req, res) => {
   try {
-    // Forward Authorization header if present
     const headers = {};
     if (req.headers.authorization) {
       headers.Authorization = req.headers.authorization;
@@ -646,15 +619,11 @@ app.get('/api/form-schema/models/bedrock', async (req, res) => {
 // Tool Management API proxy routes (for ToolManager component)
 app.get('/api/form-schema/tools/categories', async (req, res) => {
   try {
-    console.log('[PROXY] ✅ TOOL CATEGORIES ROUTE MATCHED!');
-    console.log('[PROXY] Making request to:', safeUrlEncode(CONFIGURATION_API_ENDPOINT), '/form-schema/tools/categories');
     const response = await axios.get(`${CONFIGURATION_API_ENDPOINT}/form-schema/tools/categories`, {
       headers: getAuthHeaders(req)
     });
-    console.log(`[PROXY] ✅ Tool categories response received:`, Object.keys(response.data));
     res.json(response.data);
   } catch (error) {
-    // Security: Use structured logging to prevent format string injection
     console.error('[PROXY ERROR] Failed to fetch tool categories');
     if (error.message) {
       console.error('[PROXY ERROR] Error details:', safeUrlEncode(error.message));
@@ -672,7 +641,6 @@ app.get('/api/form-schema/tools/:category/available', async (req, res) => {
       return res.status(400).json({ error: 'Invalid tool category format' });
     }
     
-    console.log(`[PROXY] GET ${CONFIGURATION_API_ENDPOINT}/form-schema/tools/${safeUrlEncode(category)}/available`);
     const response = await axios.get(`${CONFIGURATION_API_ENDPOINT}/form-schema/tools/${safeUrlEncode(category)}/available`, {
       headers: getAuthHeaders(req)
     });
@@ -695,7 +663,6 @@ app.get('/api/form-schema/tools/:category/:toolName', async (req, res) => {
       return res.status(400).json({ error: 'Invalid tool name format' });
     }
     
-    console.log(`[PROXY] GET ${CONFIGURATION_API_ENDPOINT}/form-schema/tools/${safeUrlEncode(category)}/${safeUrlEncode(toolName)}`);
     const response = await axios.get(`${CONFIGURATION_API_ENDPOINT}/form-schema/tools/${safeUrlEncode(category)}/${safeUrlEncode(toolName)}`, {
       headers: getAuthHeaders(req)
     });
@@ -708,7 +675,6 @@ app.get('/api/form-schema/tools/:category/:toolName', async (req, res) => {
 
 app.post('/api/form-schema/tools/validate', async (req, res) => {
   try {
-    console.log(`[PROXY] POST ${CONFIGURATION_API_ENDPOINT}/form-schema/tools/validate`);
     const response = await axios.post(`${CONFIGURATION_API_ENDPOINT}/form-schema/tools/validate`, req.body, {
       headers: getAuthHeaders(req)
     });

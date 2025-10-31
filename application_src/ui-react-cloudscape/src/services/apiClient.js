@@ -50,7 +50,6 @@ class AuthenticatedApiClient {
           }
         } catch (error) {
           // Don't reject the request, let it proceed without auth (API will return 401 if needed)
-          console.error('[API Client] Error preparing request:', error);
         }
         
         return config;
@@ -77,8 +76,6 @@ class AuthenticatedApiClient {
         // Handle 403 CSRF errors by refreshing token and retrying
         if (error.response?.status === 403 && 
             error.response?.data?.error?.includes('CSRF')) {
-          console.log('[API Client] CSRF token validation failed, fetching new token...');
-          
           // Clear cached token and fetch a new one
           this.csrfToken = null;
           await this.fetchCSRFToken();
@@ -108,7 +105,6 @@ class AuthenticatedApiClient {
       });
       
       this.csrfToken = response.data.csrfToken;
-      console.log('[API Client] CSRF token fetched successfully');
       return this.csrfToken;
     } catch (error) {
       console.error('[API Client] Failed to fetch CSRF token:', error);
