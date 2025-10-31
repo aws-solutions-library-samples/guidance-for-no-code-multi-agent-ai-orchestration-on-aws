@@ -99,6 +99,9 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
         if ui_access_mode == UI_ACCESS_MODE_PUBLIC:
             self._create_cloudfront_integration(project_name, ui_fargate_service)
             
+            # Update the task definition environment with CloudFront URL for CORS
+            self._update_cors_origins_with_cloudfront(ui_fargate_service)
+            
             # Output CloudFront distribution URL for easy access
             from aws_cdk import CfnOutput
             CfnOutput(
@@ -194,7 +197,12 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
                     "REGION": self.region,
                     "PROJECT_NAME": project_name,
                     "RATE_LIMIT_WINDOW_MS": str(self.get_optional_config('RateLimitWindowMs', 900000)),
-                    "RATE_LIMIT_MAX_REQUESTS": str(self.get_optional_config('RateLimitMaxRequests', 100))
+                    "RATE_LIMIT_MAX_REQUESTS": str(self.get_optional_config('RateLimitMaxRequests', 100)),
+                    # AWS Infrastructure Domain Whitelist (for VPC Lattice, ALB URLs)
+                    "ALLOWED_AWS_DOMAINS": self.get_optional_config('AllowedAwsDomains', '.elb.amazonaws.com,.on.aws,.amazonaws.com'),
+                    # CORS Origins - Will be updated with CloudFront URL after distribution creation
+                    # For private mode, use the ALB URL or custom domain
+                    "ALLOWED_ORIGINS": ""  # Placeholder, will be updated below
                 },
             ),
         )
@@ -448,3 +456,31 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
         
         # Store CloudFront distribution reference
         self.cloudfront_distribution = self.cloudfront_construct.distribution
+
+    def _update_cors_origins_with_cloudfront(self, ui_fargate_service: ecs_patterns.ApplicationLoadBalancedFargateService) -> None:
+        """Update the ECS task definition environment with CloudFront URL for CORS.
+        
+        Automatically includes the CloudFront distribution URL.
+        Optionally appends additional origins from AllowedOrigins config if specified.
+        """
+        # Get the CloudFront domain name as a CDK token that will be resolved at deploy time
+        cloudfront_url = f"https://{self.cloudfront_distribution.distribution_domain_name}"
+        
+        # Check if there are additional origins in the config file
+        try:
+            additional_origins = self.get_optional_config('AllowedOrigins', '')
+            if additional_origins and additional_origins.strip():
+                # Append custom domains to CloudFront URL
+                allowed_origins = f"{cloudfront_url},{additional_origins}"
+            else:
+                allowed_origins = cloudfront_url
+        except Exception:
+            # If config read fails for any reason, just use CloudFront URL
+            allowed_origins = cloudfront_url
+        
+        # Add the ALLOWED_ORIGINS environment variable to the container definition
+        # This uses CDK's addEnvironment method which properly handles the CloudFormation template
+        ui_fargate_service.task_definition.default_container.add_environment(
+            "ALLOWED_ORIGINS",
+            allowed_origins
+        )

@@ -83,9 +83,32 @@ DataProtection:
 MinimumHealthyPercent: 0     # Allow all tasks to be replaced for fastest deployment
 MaximumPercent: 200          # Allow temporary extra capacity during deployment
 
-# Rate Limiting Configuration
-RateLimitWindowMs: 900000  # 15 minutes in milliseconds (15 * 60 * 1000)
-RateLimitMaxRequests: 100  # Maximum requests per IP per window
+# AWS Infrastructure Domain Whitelist (for URL validation in UI proxy)
+# VPC Lattice: *.vpc-lattice-svcs.{region}.on.aws
+# ELB: *.elb.amazonaws.com
+# API Gateway: *.execute-api.{region}.amazonaws.com
+AllowedAwsDomains:
+  - ".elb.amazonaws.com"
+  - ".on.aws"  # Includes VPC Lattice domains
+  - ".amazonaws.com"
+
+# CORS Allowed Origins (for production deployments with UIAccessMode: public)
+# AllowedOrigins: "https://custom-domain.com,https://another-domain.com"
+#
+# When UIAccessMode is "public":
+# - The CloudFront distribution URL is automatically added to ALLOWED_ORIGINS
+# - If AllowedOrigins is specified here, these domains are APPENDED to the CloudFront URL
+# - Multiple origins should be comma-separated
+# - Each origin should include the protocol (https://)
+#
+# Example: If your CloudFront URL is https://d1234567890.cloudfront.net
+# and you set AllowedOrigins: "https://app.example.com,https://app2.example.com"
+# The final ALLOWED_ORIGINS will be:
+# "https://d1234567890.cloudfront.net,https://app.example.com,https://app2.example.com"
+#
+# When UIAccessMode is "private":
+# - AllowedOrigins configuration is not used (ALB direct access only)
+# - CORS is handled at the ALB level with your custom certificate domain
 
 # Service Configuration
 ApiCPU: 2048  # CPU units for API service

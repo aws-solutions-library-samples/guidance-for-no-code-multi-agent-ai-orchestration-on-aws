@@ -3,6 +3,7 @@ const cors = require('cors');
 const axios = require('axios');
 const path = require('path');
 const helmet = require('helmet');
+const fs = require('fs');
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 
 const app = express();
@@ -31,6 +32,16 @@ const ALLOWED_API_DOMAINS = [
 
 const ALLOWED_PORTS = [8000, 8080, 9003, 9000, 80, 443]; // Common safe ports
 
+// Configurable AWS infrastructure domain suffixes
+// CDK reads config/development.yaml and sets environment variables during deployment
+// Format: Comma-separated list of domain suffixes
+// Example: ALLOWED_AWS_DOMAINS=".elb.amazonaws.com,.on.aws,.amazonaws.com"
+const ALLOWED_AWS_DOMAINS = process.env.ALLOWED_AWS_DOMAINS 
+  ? process.env.ALLOWED_AWS_DOMAINS.split(',').map(domain => domain.trim()).filter(Boolean)
+  : ['.elb.amazonaws.com', '.on.aws', '.amazonaws.com']; // Local development defaults
+
+console.log('[SECURITY] Allowed AWS infrastructure domains:', ALLOWED_AWS_DOMAINS);
+
 const validateUrl = (url) => {
   try {
     const parsedUrl = new URL(url);
@@ -48,9 +59,12 @@ const validateUrl = (url) => {
       hostname === allowed || hostname.endsWith('.' + allowed)
     );
     
-    // Also allow AWS ELB endpoints (*.elb.amazonaws.com) for cloud deployments
-    const isAWSInfrastructure = hostname.endsWith('.elb.amazonaws.com') || 
-                                 hostname.endsWith('.amazonaws.com');
+    // Allow AWS infrastructure endpoints configured via ALLOWED_AWS_DOMAINS environment variable
+    // Default domains: .elb.amazonaws.com, .on.aws, .amazonaws.com
+    // VPC Lattice uses: *.vpc-lattice-svcs.{region}.on.aws
+    const isAWSInfrastructure = ALLOWED_AWS_DOMAINS.some(suffix => 
+      hostname.endsWith(suffix)
+    );
     
     if (!isDomainAllowed && !isAWSInfrastructure) {
       throw new Error(`Hostname not in whitelist: ${hostname}`);
@@ -197,10 +211,42 @@ app.use((req, res, next) => {
 
 // Middleware
 // Configure CORS to allow credentials (cookies) from the frontend
+// Security: Implement proper origin whitelist instead of permissive 'true' value
+const allowedOrigins = process.env.NODE_ENV === 'production'
+  ? (process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : [])
+  : ['http://localhost:3000', 'http://localhost:3001'];
+
 const corsOptions = {
-  origin: process.env.NODE_ENV === 'production' 
-    ? true // In production, allow same origin
-    : 'http://localhost:3000', // In development, allow React dev server
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, Postman)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // In production, check against whitelist
+    if (process.env.NODE_ENV === 'production') {
+      if (allowedOrigins.length === 0) {
+        // If no ALLOWED_ORIGINS env var set, reject all cross-origin requests for security
+        console.warn('[CORS] No ALLOWED_ORIGINS configured - rejecting cross-origin request from:', origin);
+        return callback(new Error('CORS not allowed - no origins configured'), false);
+      }
+      
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        console.warn('[CORS] Origin not in whitelist:', origin);
+        callback(new Error('Not allowed by CORS'), false);
+      }
+    } else {
+      // Development: Allow localhost origins
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        callback(null, true);
+      } else {
+        console.warn('[CORS] Development - origin not in whitelist:', origin);
+        callback(new Error('Not allowed by CORS'), false);
+      }
+    }
+  },
   credentials: true, // Allow cookies to be sent/received
   optionsSuccessStatus: 200
 };
@@ -261,21 +307,45 @@ if (process.env.NODE_ENV === 'production') {
   });
   console.log('===========================================\n');
 } else {
-  // Development: HTTP on localhost with cross-port (3000 -> 3001)
-  sessionConfig.cookie.secure = false; // Allow HTTP
-  sessionConfig.cookie.sameSite = 'lax'; // Allow cross-port requests
-  sessionConfig.cookie.domain = 'localhost'; // Explicit domain for dev
-  console.log('\n========== SESSION CONFIGURATION ==========');
-  console.log('[SESSION] Environment: DEVELOPMENT');
-  console.log('[SESSION] Configuration applied:', {
-    secure: false,
-    sameSite: 'lax',
-    domain: 'localhost',
-    httpOnly: true,
-    maxAge: '24 hours',
-    path: '/'
-  });
-  console.log('===========================================\n');
+  // Development: Only allow HTTP (secure=false) if running on true localhost
+  const isLocalhost =
+    process.env.HOST?.match(/^(localhost|127\.0\.0\.1)$/) ||
+    (process.env.HOST === undefined && (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined));
+  
+  if (isLocalhost) {
+    sessionConfig.cookie.secure = false; // Allow HTTP only on localhost
+    sessionConfig.cookie.sameSite = 'lax'; // Allow cross-port requests
+    sessionConfig.cookie.domain = 'localhost'; // Explicit domain for dev
+    console.log('\n========== SESSION CONFIGURATION ==========');
+    console.log('[SESSION] Environment: DEVELOPMENT (LOCALHOST)');
+    console.log('[SESSION] Configuration applied:', {
+      secure: false,
+      sameSite: 'lax',
+      domain: 'localhost',
+      httpOnly: true,
+      maxAge: '24 hours',
+      path: '/'
+    });
+    console.log('===========================================\n');
+  } else {
+    // If not truly localhost, enforce secure cookies to prevent accidental leaks!
+    sessionConfig.cookie.secure = true;
+    sessionConfig.cookie.sameSite = 'lax';
+    // Remove explicit domain for broader compatibility
+    delete sessionConfig.cookie.domain;
+    console.warn('[SESSION][SECURITY] Not localhost - secure cookies enforced for development!');
+    console.log('\n========== SESSION CONFIGURATION ==========');
+    console.log('[SESSION] Environment: DEVELOPMENT (NOT LOCALHOST)');
+    console.log('[SESSION] Configuration applied:', {
+      secure: true,
+      sameSite: 'lax',
+      domain: 'N/A',
+      httpOnly: true,
+      maxAge: '24 hours',
+      path: '/'
+    });
+    console.log('===========================================\n');
+  }
 }
 
 app.use(session(sessionConfig));

@@ -216,6 +216,15 @@ services:
       - SUPERVISOR_AGENT_ENDPOINT=http://supervisor-agent:9003
       - SECRETS_MANAGER_ARN=${SECRETS_MANAGER_ARN}
       - NODE_ENV=${NODE_ENV}
+      # AWS Infrastructure Domain Whitelist (comma-separated, for URL validation)
+      # Default: .elb.amazonaws.com,.on.aws,.amazonaws.com
+      # VPC Lattice uses: *.vpc-lattice-svcs.{region}.on.aws
+      - ALLOWED_AWS_DOMAINS=${ALLOWED_AWS_DOMAINS:-.elb.amazonaws.com,.on.aws,.amazonaws.com}
+      # CORS Origin Whitelist (PRODUCTION ONLY - ignored in development)
+      # Development automatically uses: http://localhost:3000,http://localhost:3001
+      # Production (NODE_ENV=production) requires explicit CloudFront domain
+      # CDK deployment automatically configures this in production
+      # - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - HOST=0.0.0.0
       - PORT=3001
       - WDS_SOCKET_HOST=0.0.0.0
