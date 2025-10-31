@@ -283,46 +283,15 @@ const sessionConfig = {
   }
 };
 
-// Configure cookie settings based on environment
-if (process.env.NODE_ENV === 'production') {
-  // Production: HTTPS via CloudFront/ALB
-  sessionConfig.cookie.secure = true; // Require HTTPS
-  
-  // CRITICAL FIX: Use 'lax' instead of 'none' for CloudFront
-  // CloudFront -> ALB is not cross-site from browser perspective (both appear as same origin)
-  // 'lax' allows cookies on top-level navigation and GET requests
-  // 'none' requires strict CORS and doesn't work well with CloudFront architecture
-  sessionConfig.cookie.sameSite = 'lax';
-  
-  // Do NOT set explicit domain - let browser use request origin (CloudFront domain)
-  console.log('[SESSION] Production: secure=true, sameSite=lax, httpOnly=true');
-} else {
-  // Development: Only allow HTTP (secure=false) if running on true localhost (127.0.0.1 or localhost HOST or origin)
-  // Only disable secure cookies for explicit, trusted local development.
-  const hostHeader = (process.env.HOST || '').toLowerCase();
-  const isLocalhost = (
-    hostHeader === 'localhost' ||
-    hostHeader === '127.0.0.1' ||
-    (process.env.HOST === undefined && (
-      process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined
-    ))
-  );
+// SECURITY: Always enforce secure cookies (HTTPS-only) to prevent session hijacking
+sessionConfig.cookie.secure = true; // Always require HTTPS
+sessionConfig.cookie.sameSite = 'lax'; // CSRF protection
 
-  if (isLocalhost) {
-    // SECURITY WARNING: Cookies sent over HTTP are vulnerable to interception!
-    // Only allow insecure cookies for true localhost development. Never set secure=false outside this case.
-    sessionConfig.cookie.secure = false; // Allow HTTP only on localhost
-    sessionConfig.cookie.sameSite = 'lax'; // Allow cross-port requests
-    sessionConfig.cookie.domain = 'localhost'; // Explicit domain for dev
-  } else {
-    // Outside trusted localhost, always enforce secure cookies!
-    // This prevents cleartext cookie transmission and mitigates session hijacking risk.
-    sessionConfig.cookie.secure = true;
-    sessionConfig.cookie.sameSite = 'lax';
-    // Remove explicit domain for broader compatibility
-    delete sessionConfig.cookie.domain;
-  }
+if (process.env.NODE_ENV !== 'production') {
+  delete sessionConfig.cookie.domain; // Flexible domain for development
 }
+
+console.log(`[SESSION] secure=true, sameSite=lax, httpOnly=true (${process.env.NODE_ENV || 'development'})`);
 
 app.use(session(sessionConfig));
 

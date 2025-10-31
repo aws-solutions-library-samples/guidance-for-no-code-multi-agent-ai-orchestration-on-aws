@@ -62,14 +62,26 @@ const AgentMapping = ({
       const mappingResponse = await configService.default.getAgentMapping();
       setAgentMappingData(mappingResponse);
       
-      // Load skills for all discovered agents - wait for completion
+      // Load skills for all discovered agents - but don't wait and handle errors silently
       if (mappingResponse?.agent_mapping) {
-        // Load skills sequentially to avoid overwhelming the API
-        for (const [url, agentInfo] of Object.entries(mappingResponse.agent_mapping)) {
-          if (agentInfo.agent_name) {
-            await loadAgentSkills(agentInfo.agent_name, url);
+        // Load skills in parallel but don't block on failures
+        const skillLoadPromises = Object.entries(mappingResponse.agent_mapping).map(
+          async ([url, agentInfo]) => {
+            if (agentInfo.agent_name && agentInfo.status === 'active') {
+              try {
+                await loadAgentSkills(agentInfo.agent_name, url);
+              } catch (error) {
+                // Silently handle skill loading failures - don't block agent mapping display
+                console.debug(`Failed to load skills for ${agentInfo.agent_name}:`, error.message);
+              }
+            }
           }
-        }
+        );
+        
+        // Don't await - let skills load in background
+        Promise.allSettled(skillLoadPromises).catch(() => {
+          // Ignore any errors - skills are optional enhancement
+        });
       }
       
     } catch (err) {setError(`Failed to load agent network topology: ${err.message}`);
@@ -241,7 +253,8 @@ const AgentMapping = ({
           
         }
       } catch (cardError) {
-        // Continue with fallback methods if agent card fetch fails
+        // Silently continue with fallback methods if agent card fetch fails
+        console.debug(`Agent card fetch failed for ${agentName}:`, cardError.message);
       }
       
       // Store tools information from agent card if any were found
