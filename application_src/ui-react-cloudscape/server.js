@@ -308,6 +308,7 @@ if (process.env.NODE_ENV === 'production') {
   console.log('===========================================\n');
 } else {
   // Development: Only allow HTTP (secure=false) if running on true localhost
+  // SECURITY FIX: Enforce secure cookies unless explicitly on localhost
   const isLocalhost =
     process.env.HOST?.match(/^(localhost|127\.0\.0\.1)$/) ||
     (process.env.HOST === undefined && (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === undefined));
@@ -329,6 +330,7 @@ if (process.env.NODE_ENV === 'production') {
     console.log('===========================================\n');
   } else {
     // If not truly localhost, enforce secure cookies to prevent accidental leaks!
+    // SECURITY: This prevents cleartext cookie transmission in non-localhost environments
     sessionConfig.cookie.secure = true;
     sessionConfig.cookie.sameSite = 'lax';
     // Remove explicit domain for broader compatibility
