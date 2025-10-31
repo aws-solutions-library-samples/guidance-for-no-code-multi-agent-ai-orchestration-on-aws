@@ -1,0 +1,145 @@
+# PROJECT NAME VALIDATION REQUIREMENTS (CRITICAL FOR PRODUCTION)
+# Maximum: 13 characters | Minimum: 3 characters
+# Pattern: ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ (lowercase letters, numbers, hyphens only)
+# Must start/end with letter or number, no consecutive hyphens
+# Reserved words blocked: aws, amazon, amzn, test, prod, dev, api, ui, vpc, kms
+# 
+# Valid examples: myapp, acme-corp, project1, ai-platform
+# Invalid examples: My-App, test, verylongname, app_name, my--app, -myapp
+#
+# Constraint source: ALB names (32 chars) - longest suffix (-generic-agent-api = 19 chars) = 13 max
+# Validation enforced in helper/config.py - see docs/PROJECT_NAME_VALIDATION.md
+ProjectName: ai-platform  # Single source of truth for all resource naming
+RegionName: us-east-1
+UIPrefixList: []
+DataTraceEnabled: True
+# CertificateArn: FILL_ME
+UIAccessMode: public  # "public" for CloudFront+VPC origins, "private" for ALB-only deployment
+
+# Authentication Provider Configuration
+AuthProviderType: cognito  # Identity provider: "cognito", "okta", "ping", "auth0"
+# Note: All provider-specific secrets, configurations, and mounting are handled automatically
+# based on AuthProviderType selection. No additional configuration required.
+
+# CloudFront Geo-Restriction Configuration (only applies when UIAccessMode is "public")
+# CloudFrontGeoRestrictionCountries:  # Optional: List of ISO country codes for geo-restriction
+#   - "US"  # United States
+#   - "CA"  # Canada
+#   - "GB"  # United Kingdom
+#   - "DE"  # Germany
+#   - "FR"  # France
+#   - "AU"  # Australia
+#   - "JP"  # Japan
+# 
+# Examples of common geo-restriction configurations:
+# North America only: ["US", "CA"]
+# English-speaking countries: ["US", "CA", "GB", "AU", "NZ"]
+# Europe + North America: ["US", "CA", "GB", "DE", "FR", "IT", "ES", "NL"]
+# Global access: Leave commented out or set to empty list []
+#
+# If not specified or empty, CloudFront allows global access (no geo-restriction)
+
+# CloudFront Price Class Configuration (only applies when UIAccessMode is "public")
+# CloudFrontPriceClass: "PriceClass_All"  # Optional: CloudFront price class
+# 
+# Available options:
+# PriceClass_All: Use all CloudFront edge locations globally (highest cost, best performance)
+# PriceClass_200: Use edge locations in North America, Europe, Asia, Middle East and Africa
+# PriceClass_100: Use edge locations in North America and Europe only (lowest cost)
+#
+# If not specified, defaults to PriceClass_All for global distribution
+
+# Infrastructure Configuration
+MaxAZs: 2  # Number of availability zones to use
+CIDRMask: 24  # CIDR mask for subnets
+
+# Shared Logging Configuration
+SharedLogGroupName: agentic-ai-platform-logs  # Shared CloudWatch log group for all ECS tasks
+SharedLogGroupRetentionDays: 30  # Log retention period in days
+UseSharedLogGroup: true  # Enable shared log group for all ECS services
+
+# Data Protection Configuration - Always enabled by default with CloudWatch audit findings
+DataProtection:
+  AuditFindingsLogGroupName: "platform-data-protection-audit-findings"  # CloudWatch log group for audit findings
+  ManagedIdentifiers:  # AWS managed data identifiers to enable
+    - "aws-access-key"
+    - "aws-secret-key"
+    - "aws-session-token"
+    - "api-key"
+    - "auth-token"
+    - "password"
+    - "email-address"
+    - "ip-address"
+    - "credit-card"
+  CustomIdentifiers:  # Platform-specific custom identifiers
+    - "agent-config-secrets"
+    - "ssm-parameter-values"
+    - "bedrock-ai-tokens"
+    - "database-connections"
+    - "jwt-tokens"
+  PolicyType: "log_group"  # Use log group-level policies
+
+# Fast deployment settings (allow zero healthy tasks during rolling deployment)
+MinimumHealthyPercent: 0     # Allow all tasks to be replaced for fastest deployment
+MaximumPercent: 200          # Allow temporary extra capacity during deployment
+
+# Rate Limiting Configuration
+RateLimitWindowMs: 900000  # 15 minutes in milliseconds (15 * 60 * 1000)
+RateLimitMaxRequests: 100  # Maximum requests per IP per window
+
+# Service Configuration
+ApiCPU: 2048  # CPU units for API service
+ApiMemory: 4096  # Memory in MiB for API service
+ApiDesiredCount: 1  # Desired count for API service
+
+AgentCPU: 2048  # CPU units for Agent service
+AgentMemory: 4096  # Memory in MiB for Agent service
+AgentDesiredCount: 1  # Desired count for Agent service
+
+UiCPU: 1024  # CPU units for UI service
+UiMemory: 2048  # Memory in MiB for UI service
+UiDesiredCount: 1  # Desired count for UI service
+UiMinHealthyPercent: 50  # Minimum healthy percent for UI service
+UiDeregistrationDelay: 10  # Deregistration delay in seconds for UI service
+
+# User-specific Configuration
+# UserSuffix: development  # User suffix for resource names
+AgentName: qa_agent # Name of the agent
+AgentDescription: Question Answer Agent # Description of the agent
+
+# Supervisor Agent Configuration
+SupervisorAgentName: supervisor_agent # Name of the supervisor agent
+SupervisorAgentDescription: Multi-Agent Supervisor # Description of the supervisor agent
+SupervisorSystemPromptName: SupervisorSystemPrompt # Name of the supervisor system prompt
+SupervisorModelId: us.anthropic.claude-opus-4-1-20250805-v1:0 # ID of the primary model to use (cross-region inference profile)
+SupervisorModelIds: # List of available models for multi-select (in priority order)
+  - us.anthropic.claude-opus-4-1-20250805-v1:0
+  - us.anthropic.claude-sonnet-4-20250514-v1:0
+  - us.anthropic.claude-opus-4-20250514-v1:0
+  - us.anthropic.claude-3-7-sonnet-20250219-v1:0
+  - us.anthropic.claude-3-5-sonnet-20241022-v2:0
+SupervisorJudgeModelId: us.anthropic.claude-opus-4-1-20250805-v1:0 # ID of the judge model to use (cross-region inference profile)
+SupervisorGuardrailId: "" # ID of the guardrail to use
+SupervisorTemperature: 0.7 # Temperature parameter for model inference
+SupervisorTopP: 0.9 # Top-p parameter for model inference
+SupervisorStreaming: "True" # Enable or disable streaming responses
+SupervisorCachePrompt: default # Cache prompt setting
+SupervisorCacheTools: default # Cache tools setting
+SupervisorThinkingBudgetTokens: 4096 # Budget tokens for thinking
+SupervisorGuardrailEnabled: "No" # Enable or disable guardrails
+SupervisorGuardrailProvider: Bedrock GuardRails # Provider for guardrails
+SupervisorObservabilityEnabled: "Yes" # Enable or disable observability
+SupervisorObservabilityProvider: langfuse # Observability provider to use
+SupervisorObservabilityType: custom # Type of observability integration
+
+# Generic Agent Model Configuration (for all generic agent instances)
+GenericAgentModelId: us.amazon.nova-lite-v1:0 # Default model for generic agents (cross-region inference profile)
+GenericAgentJudgeModelId: "" # Default judge model for generic agents
+GenericAgentEmbeddingModelId: amazon.titan-embed-text-v2:0 # Default embedding model for generic agents
+GenericAgentTemperature: 0.3 # Default temperature for generic agents
+GenericAgentTopP: 0.8 # Default top-p for generic agents
+GenericAgentStreaming: "True" # Enable streaming for generic agents
+
+# System prompts are now managed as individual files in Configuration API prompts/ folder
+# They are automatically loaded and converted to SSM SecureString parameters on startup
+# This provides better version control and easier prompt management

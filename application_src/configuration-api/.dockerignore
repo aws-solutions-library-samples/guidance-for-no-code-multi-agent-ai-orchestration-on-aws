@@ -1,0 +1,43 @@
+# .dockerignore for Configuration API
+# Minimize Docker build context while maintaining shared common/ access
+
+# ===== EXCLUDE OTHER SERVICES =====
+# Exclude all other service directories to minimize build context
+multi-agent/
+ui-react/
+ui-react-cloudscape/
+
+# ===== EXCLUDE DEVELOPMENT FILES =====
+# Development and testing files
+**/.git/
+**/.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.coverage
+**/htmlcov/
+**/.env*
+**/.DS_Store
+
+# Documentation and examples
+**/*.md
+**/README*
+**/docs/
+**/examples/
+
+# IDE and editor files
+**/.vscode/
+**/.idea/
+**/*.swp
+**/*.swo
+
+# ===== KEEP REQUIRED FILES =====
+# Keep configuration-api/ directory (current service)
+!configuration-api/
+
+# Keep common/ directory (shared dependencies)
+!common/
+
+# Keep root files needed for builds
+!docker-compose.yml
+!sync-common.sh

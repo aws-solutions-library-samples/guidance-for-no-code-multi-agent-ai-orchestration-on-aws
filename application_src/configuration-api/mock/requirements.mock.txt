@@ -1,0 +1,20 @@
+# Requirements for Configuration API Mock Server
+# Based on original requirements.txt with additional mock dependencies
+
+# FastAPI and web server dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+
+# AWS SDK (boto3) - needed for mock clients to work
+boto3==1.35.9
+botocore==1.35.9
+
+# Data handling and parsing
+pydantic==2.5.0
+PyYAML==6.0.1
+
+# Logging and utilities
+python-multipart>=0.0.10  # Security fix for GHSA-59g5-xgcq-4qw3, GHSA-2jv5-9r88-3w3p
+
+# Optional: For development and testing
+requests>=2.32.0  # Security fix for GHSA-9wx4-h78v-vm56, GHSA-9hjg-9r4m-mvj7

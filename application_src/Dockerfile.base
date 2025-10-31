@@ -1,0 +1,119 @@
+# Shared Base Dockerfile for all services
+# This provides common system dependencies and base layers for better caching
+
+# Stage 1: System base with common tools (rarely changes)
+# checkov:skip=CKV_DOCKER_2:Base image for build stages only, health checks added in service-specific Dockerfiles
+# checkov:skip=CKV_DOCKER_3:Non-root user configured in individual service Dockerfiles for proper port/permissions
+FROM python:3.12-slim@sha256:b9007ae549da50a6c72d345366d36874fee8de37b833de178eb488143f33e4ca as system-base
+
+# Set environment variables early to maximize caching
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Install system dependencies with security updates and address bind9 CVEs
+RUN apt-get update && \
+    # Configure security repository for Debian Bookworm
+    echo "deb http://security.debian.org/debian-security bookworm-security main" > /etc/apt/sources.list.d/debian-security.list && \
+    apt-get update && \
+    # Force security updates first - critical for CVE patching
+    apt-get upgrade -y --only-upgrade && \
+    # Address bind9 CVE vulnerabilities (CVE-2025-8677, CVE-2025-40778, CVE-2025-40780)
+    # Remove any existing vulnerable bind9 packages first
+    (apt-get remove -y bind9* || true) && \
+    apt-get update && \
+    # Install patched bind9 packages from security repository
+    # Using -t bookworm-security to prioritize security updates
+    apt-get install -y -t bookworm-security --no-install-recommends \
+        bind9-libs \
+        bind9-host \
+        bind9-dnsutils && \
+    # Verify bind9 version meets security requirements (>= 1:9.20.15)
+    dpkg -l | grep bind9 && \
+    # Ensure we have the patched version
+    dpkg -l | grep -E "bind9.*(1:9.20.1[5-9]|1:9.20.[2-9][0-9]|1:9.[2-9][0-9])" || \
+    (echo "ERROR: bind9 version does not meet security requirements (>= 1:9.20.15)" && exit 1) && \
+    # Install build dependencies for OpenSSL compilation
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    wget \
+    ca-certificates \
+    git \
+    curl \
+    gnupg \
+    dnsutils \
+    procps \
+    zlib1g-dev \
+    && \
+    # Remove vulnerable OpenSSL packages
+    apt-get remove -y openssl libssl3 libssl-dev || true && \
+    # Download and compile OpenSSL 3.5.2 (patched version addressing CVEs)
+    cd /tmp && \
+    wget https://github.com/openssl/openssl/releases/download/openssl-3.5.2/openssl-3.5.2.tar.gz && \
+    tar -xzf openssl-3.5.2.tar.gz && \
+    cd openssl-3.5.2 && \
+    ./Configure --prefix=/usr/local/ssl --openssldir=/usr/local/ssl shared zlib && \
+    make -j$(nproc) && \
+    make install && \
+    # Update library path and symlinks
+    echo "/usr/local/ssl/lib64" > /etc/ld.so.conf.d/openssl-3.5.2.conf && \
+    ldconfig && \
+    ln -sf /usr/local/ssl/bin/openssl /usr/bin/openssl && \
+    # Verify OpenSSL version
+    /usr/local/ssl/bin/openssl version && \
+    # Clean up build dependencies and temporary files
+    cd / && rm -rf /tmp/openssl-3.5.2* && \
+    apt-get remove -y build-essential wget && \
+    apt-get autoremove -y && \
+    apt-get upgrade -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+# DNS configuration is handled automatically by Docker
+# Removed problematic /etc/resolv.conf modification
+
+# Stage 2: Python + Node base (moderate changes)
+FROM system-base as python-node-base
+
+# Set Node.js environment variables
+ENV NODE_OPTIONS="--dns-result-order=ipv4first"
+
+# Install Node.js with security patches
+RUN apt-get update && \
+    # Install build dependencies temporarily
+    apt-get install -y --no-install-recommends wget && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get update && \
+    # Force security updates first
+    apt-get upgrade -y --only-upgrade && \
+    apt-get install -y nodejs && \
+    # Final security upgrade to catch any Node.js dependencies
+    apt-get upgrade -y && \
+    # Clean up
+    apt-get remove -y wget && \
+    apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+# Configure npm
+RUN npm config set registry https://registry.npmjs.org/
+
+# Upgrade pip and install common build tools
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Create non-root user early (shared across all services)
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
+# Stage 3: Python-only base (for services that don't need Node.js)
+FROM system-base as python-base
+
+# Upgrade pip and install common build tools
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Create non-root user early
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app

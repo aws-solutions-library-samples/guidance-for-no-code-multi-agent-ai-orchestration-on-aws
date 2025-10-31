@@ -1,0 +1,170 @@
+# Mock data for Configuration API
+# This file contains sample responses for AWS services
+
+ssm_parameters:
+  # Agent configurations
+  "/agent/qa_agent/config":
+    agent_name: "qa_agent"
+    agent_description: "Q&A Agent for document-based queries"
+    system_prompt_name: "default_qa"
+    model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    judge_model_id: "anthropic.claude-3-haiku-20240307-v1:0"
+    embedding_model_id: "amazon.titan-embed-text-v2:0"
+    region_name: "us-east-1"
+    temperature: 0.7
+    top_p: 0.9
+    streaming: "true"
+    cache_prompt: "false"
+    cache_tools: "false"
+    thinking:
+      type: "budget"
+      budget_tokens: 1000
+    memory: "false"
+    memory_provider: "none"
+    memory_provider_details: []
+    knowledge_base: "true"
+    knowledge_base_provider: "bedrock_kb"
+    knowledge_base_provider_type: "vector"
+    knowledge_base_details:
+      - name: "bedrock_kb"
+        config:
+          knowledge_base_id: "KB123456789"
+          region: "us-east-1"
+    observability: "true"
+    observability_provider: "langfuse"
+    observability_provider_details:
+      - name: "langfuse"
+        config:
+          host: "https://langfuse.example.com"
+          public_key: "pk_test_123"
+          secret_key: "sk_test_456"
+    guardrail: "false"
+    guardrail_provider: "none"
+    guardrail_provider_details: []
+    tools:
+      - name: "web_search"
+        config:
+          api_key: "mock_search_key"
+          max_results: 10
+
+  "/agent/chat_agent/config":
+    agent_name: "chat_agent"
+    agent_description: "General chat agent for conversations"
+    system_prompt_name: "friendly_chat"
+    model_id: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    judge_model_id: "anthropic.claude-3-haiku-20240307-v1:0"
+    embedding_model_id: "amazon.titan-embed-text-v2:0"
+    region_name: "us-east-1"
+    temperature: 0.8
+    top_p: 0.95
+    streaming: "true"
+    cache_prompt: "false"
+    cache_tools: "false"
+    thinking:
+      type: "budget"
+      budget_tokens: 2000
+    memory: "true"
+    memory_provider: "mem0"
+    memory_provider_details:
+      - name: "mem0"
+        config:
+          host: "localhost:8001"
+    knowledge_base: "false"
+    knowledge_base_provider: "none"
+    knowledge_base_provider_type: "none"
+    knowledge_base_details: []
+    observability: "true"
+    observability_provider: "dynatrace"
+    observability_provider_details:
+      - name: "dynatrace"
+        config:
+          endpoint: "https://dynatrace.example.com"
+          api_token: "dt_test_token"
+    guardrail: "true"
+    guardrail_provider: "amazon_bedrock"
+    guardrail_provider_details:
+      - name: "amazon_bedrock"
+        config:
+          guardrail_id: "GR123456789"
+          version: "DRAFT"
+    tools:
+      - name: "calculator"
+        config:
+          precision: 10
+      - name: "date_time"
+        config:
+          timezone: "UTC"
+
+  # System prompts index
+  "/agent/qa_agent/system-prompts/index":
+    "default_qa": "/agent/qa_agent/system-prompts/default_qa"
+    "technical_qa": "/agent/qa_agent/system-prompts/technical_qa"
+
+  "/agent/chat_agent/system-prompts/index":
+    "friendly_chat": "/agent/chat_agent/system-prompts/friendly_chat"
+    "professional_chat": "/agent/chat_agent/system-prompts/professional_chat"
+
+  # System prompt contents
+  "/agent/qa_agent/system-prompts/default_qa": |
+    You are a helpful Q&A assistant designed to answer questions based on provided documents.
+    
+    Instructions:
+    - Always base your answers on the provided context
+    - If you cannot find the answer in the context, say so clearly
+    - Provide accurate and concise responses
+    - Ask clarifying questions when needed
+    
+    Remember to be helpful and accurate in all your responses.
+
+  "/agent/qa_agent/system-prompts/technical_qa": |
+    You are a technical Q&A assistant specializing in software development and architecture.
+    
+    Instructions:
+    - Provide detailed technical explanations
+    - Include code examples when relevant
+    - Reference best practices and industry standards
+    - Explain complex concepts in understandable terms
+    
+    Focus on accuracy and technical depth in your responses.
+
+  "/agent/chat_agent/system-prompts/friendly_chat": |
+    You are a friendly and engaging conversational AI assistant.
+    
+    Instructions:
+    - Be warm, helpful, and approachable
+    - Maintain a positive and encouraging tone
+    - Ask follow-up questions to keep conversations engaging
+    - Show interest in the user's topics and concerns
+    
+    Your goal is to provide helpful assistance while creating a pleasant conversational experience.
+
+  "/agent/chat_agent/system-prompts/professional_chat": |
+    You are a professional AI assistant focused on business and workplace communications.
+    
+    Instructions:
+    - Maintain a professional and courteous tone
+    - Provide structured and organized responses
+    - Focus on productivity and efficiency
+    - Offer practical solutions and recommendations
+    
+    Ensure all interactions meet high professional standards.
+
+vpc_lattice:
+  service_network_arn: "arn:aws:vpc-lattice:us-east-1:123456789012:servicenetwork/sn-0123456789abcdef0"
+  service_associations:
+    - serviceName: "qa-agent-service"
+      serviceArn: "arn:aws:vpc-lattice:us-east-1:123456789012:service/svc-0123456789abcdef0"
+      dnsEntry:
+        domainName: "localhost:9001"
+        hostedZoneId: "Z09127531234567890ABC"
+    - serviceName: "chat-agent-service"
+      serviceArn: "arn:aws:vpc-lattice:us-east-1:123456789012:service/svc-0123456789abcdef1"
+      dnsEntry:
+        domainName: "localhost:9002"
+        hostedZoneId: "Z09127531234567890ABC"
+
+# Environment variables for mock server
+environment:
+  AWS_REGION: "us-east-1"
+  VPC_LATTICE_SERVICE_NETWORK_ARN: "arn:aws:vpc-lattice:us-east-1:123456789012:servicenetwork/sn-0123456789abcdef0"
+  PORT: "8000"

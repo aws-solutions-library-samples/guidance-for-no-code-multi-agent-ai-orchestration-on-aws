@@ -1,0 +1,242 @@
+version: '3.8'
+
+services:
+  # Configuration API Service for Local Development
+  configuration-api:
+    build:
+      context: .  # Changed to current directory to match CDK
+      dockerfile: configuration-api/Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: configuration-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./configuration-api:/app
+      - ./common:/app/common
+    environment:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_REGION=${AWS_REGION}
+      - AGENT_NAME=configuration-api
+      - PORT=8000
+      - HOST=0.0.0.0  # Required for container networking
+      - PYTHONPATH=/app
+      - RELOAD=true
+      - VPC_LATTICE_SERVICE_NETWORK_ARN=${VPC_LATTICE_SERVICE_NETWORK_ARN:-}
+      - SECRETS_MANAGER_ARN=${SECRETS_MANAGER_ARN}
+      - AUTH_PROVIDER_TYPE=${AUTH_PROVIDER_TYPE}
+    networks:
+      - genai_network
+
+  # Generic Agent Instance 1 - Snowflake QA Agent
+  agent-1:
+    build:
+      context: .
+      dockerfile: multi-agent/agent-instance/Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: agent-1
+    ports:
+      - "9001:8080"  # External port 9001 maps to internal port 8080
+    volumes:
+      - ./multi-agent/agent-instance:/app
+      - ./common:/app/common
+    environment:
+      # AWS Configuration
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_REGION=${AWS_REGION}
+      # Agent Configuration (Environment-driven)
+      - AGENT_NAME=snowflake-finserve-intel
+      - AGENT_DESCRIPTION=A QA agent that can answer questions from Snowflake using qa_agent configuration
+      # Model Configuration (Generic environment variables for all agents)
+      - MODEL_ID=${GENERIC_AGENT_MODEL_ID:-}
+      - JUDGE_MODEL_ID=${GENERIC_AGENT_JUDGE_MODEL_ID:-}
+      - EMBEDDING_MODEL_ID=${GENERIC_AGENT_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}
+      - TEMPERATURE=${GENERIC_AGENT_TEMPERATURE:-0.3}
+      - TOP_P=${GENERIC_AGENT_TOP_P:-0.8}
+      - STREAMING=${GENERIC_AGENT_STREAMING:-true}
+      # Runtime Configuration
+      - HOST=0.0.0.0  # Required for container networking
+      - HOSTED_DNS=agent-1:8080
+      - PYTHONPATH=/app:/app/common
+      - RELOAD=true
+    networks:
+      - genai_network
+    depends_on:
+      configuration-api:
+        condition: service_started
+    restart: unless-stopped
+
+  # Generic Agent Instance 2 - Elasticsearch QA Agent  
+  agent-2:
+    build:
+      context: .
+      dockerfile: multi-agent/agent-instance/Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: agent-2
+    ports:
+      - "9002:8080"  # External port 9002 maps to internal port 8080
+    volumes:
+      - ./multi-agent/agent-instance:/app
+      - ./common:/app/common
+    environment:
+      # AWS Configuration
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_REGION=${AWS_REGION}
+      # Agent Configuration (Environment-driven)
+      - AGENT_NAME=qa_agent
+      - AGENT_DESCRIPTION=A QA agent that can answer questions from Elasticsearch using qa_agent_2 configuration
+      # Model Configuration (Generic environment variables for all agents)
+      - MODEL_ID=${GENERIC_AGENT_MODEL_ID:-}
+      - JUDGE_MODEL_ID=${GENERIC_AGENT_JUDGE_MODEL_ID:-}
+      - EMBEDDING_MODEL_ID=${GENERIC_AGENT_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}
+      - TEMPERATURE=${GENERIC_AGENT_TEMPERATURE:-0.3}
+      - TOP_P=${GENERIC_AGENT_TOP_P:-0.8}
+      - STREAMING=${GENERIC_AGENT_STREAMING:-true}
+      # Runtime Configuration
+      - HOST=0.0.0.0  # Required for container networking
+      - HOSTED_DNS=agent-2:8080
+      - PYTHONPATH=/app:/app/common
+      - RELOAD=true
+    networks:
+      - genai_network
+    depends_on:
+      configuration-api:
+        condition: service_started
+    restart: unless-stopped
+
+  # Supervisor Agent - Coordinates with other agents (Port 9003)
+  supervisor-agent:
+    build:
+      context: .
+      dockerfile: multi-agent/agent-supervisor/Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: supervisor-agent
+    ports:
+      - "9003:9003"
+    volumes:
+      - ./multi-agent/agent-supervisor:/app
+      - ./common:/app/common
+    environment:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_REGION=${AWS_REGION}
+      - AGENT_NAME=supervisor_agent
+      # Model Configuration (Generic environment variables for supervisor)
+      - MODEL_ID=${SUPERVISOR_MODEL_ID:-us.anthropic.claude-opus-4-1-20250805-v1:0}
+      - JUDGE_MODEL_ID=${SUPERVISOR_JUDGE_MODEL_ID:-us.anthropic.claude-opus-4-1-20250805-v1:0}
+      - EMBEDDING_MODEL_ID=${SUPERVISOR_EMBEDDING_MODEL_ID:-amazon.titan-embed-text-v2:0}
+      - TEMPERATURE=${SUPERVISOR_TEMPERATURE:-0.7}
+      - TOP_P=${SUPERVISOR_TOP_P:-0.9}
+      - STREAMING=${SUPERVISOR_STREAMING:-true}
+      - HOST=0.0.0.0  # Required for container networking
+      - HOSTED_DNS=supervisor-agent:9003
+      - CONFIGURATION_API_ENDPOINT=http://configuration-api:8000
+      - AGENT_1_URL=http://agent-1:8080
+      - AGENT_2_URL=http://agent-2:8080
+      - PYTHONPATH=/app:/app/common
+      - RELOAD=true
+    networks:
+      - genai_network
+    depends_on:
+      configuration-api:
+        condition: service_started
+      agent-1:
+        condition: service_started
+      agent-2:
+        condition: service_started
+    restart: unless-stopped
+
+  # React UI - Modern web interface for agent interaction with Express proxy backend
+  # COMMENTED OUT - Using Cloudscape version instead
+  # ui-react:
+  #   build: 
+  #     context: ./ui-react
+  #     dockerfile: Dockerfile
+  #     target: ${BUILD_TARGET:-development}
+  #   container_name: genai-ui-react
+  #   ports:
+  #     - "3000:3000"  # React dev server (hot reload)
+  #     - "3001:3001"  # Express server (API endpoints)
+  #   volumes:
+  #     - ./ui-react:/app
+  #     - /app/node_modules
+  #   environment:
+  #     - AWS_ACCESS_KEY_ID
+  #     - AWS_SECRET_ACCESS_KEY
+  #     - AWS_SESSION_TOKEN
+  #     - AWS_REGION=${AWS_REGION}
+  #     - AGENT_NAME=ui-react
+  #     - CONFIGURATION_API_ENDPOINT=http://configuration-api:8000
+  #     - SUPERVISOR_AGENT_ENDPOINT=http://supervisor-agent:9003
+  #     - SECRETS_MANAGER_ARN=${SECRETS_MANAGER_ARN}
+  #     - NODE_ENV=${NODE_ENV}
+  #     - HOST=0.0.0.0
+  #     - PORT=3001
+  #     - WDS_SOCKET_HOST=0.0.0.0
+  #     - CHOKIDAR_USEPOLLING=true
+  #     - REACT_APP_BACKEND_URL=http://localhost:3001
+  #   networks:
+  #     - genai_network
+  #   depends_on:
+  #     configuration-api:
+  #       condition: service_started
+  #     supervisor-agent:
+  #       condition: service_started
+  #   restart: unless-stopped
+
+  # Cloudscape UI - AWS Cloudscape Design System compliant interface (PRIMARY UI)
+  ui-react-cloudscape:
+    build: 
+      context: ./ui-react-cloudscape
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: genai-ui-cloudscape
+    ports:
+      - "3000:3000"  # React dev server (hot reload) - Now primary UI on port 3000
+      - "3001:3001"  # Express server (API endpoints)
+    volumes:
+      - ./ui-react-cloudscape:/app
+      - /app/node_modules
+    environment:
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_SESSION_TOKEN
+      - AWS_REGION=${AWS_REGION}
+      - AGENT_NAME=ui-react-cloudscape
+      - CONFIGURATION_API_ENDPOINT=http://configuration-api:8000
+      - SUPERVISOR_AGENT_ENDPOINT=http://supervisor-agent:9003
+      - SECRETS_MANAGER_ARN=${SECRETS_MANAGER_ARN}
+      - NODE_ENV=${NODE_ENV}
+      - HOST=0.0.0.0
+      - PORT=3001
+      - WDS_SOCKET_HOST=0.0.0.0
+      - CHOKIDAR_USEPOLLING=true
+      - REACT_APP_BACKEND_URL=http://localhost:3001
+    networks:
+      - genai_network
+    depends_on:
+      configuration-api:
+        condition: service_started
+      supervisor-agent:
+        condition: service_started
+    restart: unless-stopped
+
+networks:
+  genai_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Optional: Add volumes for persistent data if needed
+volumes:
+  config_data:
+    driver: local
+  agent_logs:
+    driver: local

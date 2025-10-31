@@ -1,0 +1,66 @@
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+Licensed under the Massachusetts Institute of Technology (MIT) license
+
+**********************
+THIRD PARTY COMPONENTS
+**********************
+This software includes third party software subject to the following copyrights:
+
+**Python Dependencies:**
+aws-cdk-lib under Apache 2.0 license
+boto3 under Apache 2.0 license
+constructs under Apache 2.0 license
+fastapi under the Massachusetts Institute of Technology (MIT) license
+uvicorn under BSD 3-Clause license
+pydantic under the Massachusetts Institute of Technology (MIT) license
+requests under Apache 2.0 license
+httpx under BSD 3-Clause license
+aiohttp under Apache 2.0 license
+python-dotenv under BSD 3-Clause license
+sseclient-py under the Massachusetts Institute of Technology (MIT) license
+PyJWT under the Massachusetts Institute of Technology (MIT) license
+pyyaml under the Massachusetts Institute of Technology (MIT) license
+python-multipart under the Massachusetts Institute of Technology (MIT) license
+cdk-nag under Apache 2.0 license
+
+**AI/ML and Data Processing:**
+strands-agents under proprietary license
+strands-agents-tools under proprietary license
+mcp under the Massachusetts Institute of Technology (MIT) license
+mem0ai under Apache 2.0 license
+langfuse under the Massachusetts Institute of Technology (MIT) license
+langchain under the Massachusetts Institute of Technology (MIT) license
+langchain-elasticsearch under the Massachusetts Institute of Technology (MIT) license
+langchain_aws under the Massachusetts Institute of Technology (MIT) license
+langchain-community under the Massachusetts Institute of Technology (MIT) license
+langchain-mongodb under the Massachusetts Institute of Technology (MIT) license
+faiss-cpu under the Massachusetts Institute of Technology (MIT) license
+bedrock-agentcore under proprietary license
+
+**Database and Search:**
+elasticsearch under Elastic License 2.0
+opensearch-py under Apache 2.0 license
+pymongo under Apache 2.0 license
+snowflake-snowpark-python under Apache 2.0 license
+
+**Observability and Monitoring:**
+opentelemetry-api under Apache 2.0 license
+opentelemetry-sdk under Apache 2.0 license
+opentelemetry-exporter-otlp under Apache 2.0 license
+opentelemetry-exporter-otlp-proto-http under Apache 2.0 license
+traceloop-sdk under the Massachusetts Institute of Technology (MIT) license
+
+**React/Node.js Dependencies:**
+react under the Massachusetts Institute of Technology (MIT) license
+react-dom under the Massachusetts Institute of Technology (MIT) license
+react-scripts under the Massachusetts Institute of Technology (MIT) license
+aws-amplify under Apache 2.0 license
+@aws-amplify/auth under Apache 2.0 license
+@aws-amplify/core under Apache 2.0 license
+@aws-sdk/client-secrets-manager under Apache 2.0 license
+axios under the Massachusetts Institute of Technology (MIT) license
+express under the Massachusetts Institute of Technology (MIT) license
+cors under the Massachusetts Institute of Technology (MIT) license
+concurrently under the Massachusetts Institute of Technology (MIT) license
+i18next under the Massachusetts Institute of Technology (MIT) license
+react-i18next under the Massachusetts Institute of Technology (MIT) license

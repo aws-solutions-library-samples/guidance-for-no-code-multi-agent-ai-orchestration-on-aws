@@ -1,0 +1,414 @@
+/* AWS Cloudscape Custom Theme Enhancements */
+/* Supports light/dark mode, density modes, and motion preferences */
+
+/* Root theme variables */
+:root {
+  /* Brand colors */
+  --brand-primary: #0972d3;
+  --brand-secondary: #545b64;
+  --brand-success: #037f03;
+  --brand-warning: #8d6605;
+  --brand-error: #d13313;
+  --brand-info: #0972d3;
+  
+  /* Enhanced spacing for comfortable density */
+  --spacing-comfortable: 1.2;
+  --spacing-compact: 0.8;
+  
+  /* Animation timing */
+  --motion-duration-fast: 0.15s;
+  --motion-duration-normal: 0.25s;
+  --motion-duration-slow: 0.35s;
+  --motion-easing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Explicit Dark Mode Theme Implementation */
+[data-awsui-color-scheme="dark"] {
+  /* Override brand colors for dark mode */
+  --brand-primary: #2196f3;
+  --brand-secondary: #879596;
+  --brand-success: #7aa116;
+  --brand-warning: #dfb52c;
+  --brand-error: #ff9592;
+  --brand-info: #2196f3;
+  
+  /* Force dark theme styles */
+  background-color: #16191f !important;
+  color: #e9ebed !important;
+}
+
+/* Dark mode for all major elements */
+[data-awsui-color-scheme="dark"] body {
+  background-color: #16191f !important;
+  color: #e9ebed !important;
+}
+
+[data-awsui-color-scheme="dark"] #root {
+  background-color: #16191f !important;
+  color: #e9ebed !important;
+}
+
+/* Dark mode for Cloudscape components */
+[data-awsui-color-scheme="dark"] .awsui-app-layout,
+[data-awsui-color-scheme="dark"] .awsui-container,
+[data-awsui-color-scheme="dark"] .awsui-box {
+  background-color: #16191f !important;
+  color: #e9ebed !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-container-variant-default {
+  background-color: #232f3e !important;
+  border-color: #414d5c !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-container-variant-stacked {
+  background-color: #1b1f23 !important;
+  border-color: #414d5c !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-header {
+  color: #ffffff !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-input,
+[data-awsui-color-scheme="dark"] .awsui-textarea,
+[data-awsui-color-scheme="dark"] .awsui-select {
+  background-color: #232f3e !important;
+  color: #e9ebed !important;
+  border-color: #414d5c !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-button-variant-primary {
+  background-color: #0073bb !important;
+  border-color: #0073bb !important;
+  color: #ffffff !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-button-variant-normal {
+  background-color: #232f3e !important;
+  border-color: #414d5c !important;
+  color: #e9ebed !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-alert {
+  background-color: #232f3e !important;
+  border-color: #414d5c !important;
+  color: #e9ebed !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-top-navigation {
+  background-color: #232f3e !important;
+  border-color: #414d5c !important;
+  color: #e9ebed !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-modal {
+  background-color: #16191f !important;
+  color: #e9ebed !important;
+}
+
+[data-awsui-color-scheme="dark"] .awsui-cards-card {
+  background-color: #232f3e !important;
+  border-color: #414d5c !important;
+  color: #e9ebed !important;
+}
+
+/* Density mode adjustments */
+[data-awsui-density="compact"] {
+  /* Tighter spacing for compact mode */
+  --spacing-scale: var(--spacing-compact);
+}
+
+[data-awsui-density="comfortable"] {
+  /* Generous spacing for comfortable mode */
+  --spacing-scale: var(--spacing-comfortable);
+}
+
+/* Motion preferences */
+[data-awsui-motion="disabled"] * {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0.01ms !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0.01ms !important;
+}
+
+[data-awsui-motion="enabled"] {
+  /* Smooth transitions for interactive elements */
+  .awsui-button,
+  .awsui-select,
+  .awsui-input,
+  .awsui-textarea,
+  .awsui-toggle,
+  .awsui-checkbox {
+    transition: all var(--motion-duration-normal) var(--motion-easing);
+  }
+  
+  /* Enhanced hover effects */
+  .awsui-button:hover,
+  .awsui-select:hover,
+  .awsui-input:hover,
+  .awsui-textarea:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+  
+  /* Modal and overlay animations */
+  .awsui-modal,
+  .awsui-popover,
+  .awsui-dropdown {
+    animation: fadeInScale var(--motion-duration-normal) var(--motion-easing);
+  }
+}
+
+/* Custom animations */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Enhanced focus indicators */
+:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Custom scrollbar styling (WebKit browsers) */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--brand-secondary);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand-primary);
+}
+
+/* Loading state enhancements */
+.loading-shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading-shimmer 1.5s infinite;
+}
+
+@keyframes loading-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+[data-awsui-color-scheme="dark"] .loading-shimmer {
+  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
+  background-size: 200% 100%;
+}
+
+/* Enhanced card hover effects */
+[data-awsui-motion="enabled"] .awsui-cards-card {
+  transition: all var(--motion-duration-normal) var(--motion-easing);
+}
+
+[data-awsui-motion="enabled"] .awsui-cards-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+/* Status indicator enhancements */
+.status-indicator-success {
+  color: var(--brand-success);
+}
+
+.status-indicator-warning {
+  color: var(--brand-warning);
+}
+
+.status-indicator-error {
+  color: var(--brand-error);
+}
+
+.status-indicator-info {
+  color: var(--brand-info);
+}
+
+/* Chat interface enhancements */
+.chat-message {
+  transition: all var(--motion-duration-fast) var(--motion-easing);
+}
+
+[data-awsui-motion="enabled"] .chat-message:hover {
+  background-color: rgba(var(--brand-primary), 0.05);
+}
+
+/* Wizard step indicators */
+.wizard-step-active {
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+
+/* Custom button variants */
+.button-ai-primary {
+  background: linear-gradient(135deg, var(--brand-primary), var(--brand-info));
+  border: none;
+  color: white;
+  font-weight: 600;
+}
+
+[data-awsui-motion="enabled"] .button-ai-primary {
+  transition: all var(--motion-duration-normal) var(--motion-easing);
+}
+
+[data-awsui-motion="enabled"] .button-ai-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(var(--brand-primary), 0.3);
+}
+
+/* Help panel enhancements */
+.help-panel-section {
+  border-left: 3px solid var(--brand-primary);
+  padding-left: 16px;
+  margin-bottom: 16px;
+}
+
+/* Network topology diagram enhancements */
+.network-connection-line {
+  background: linear-gradient(to bottom, var(--brand-primary), var(--brand-info));
+  transition: all var(--motion-duration-normal) var(--motion-easing);
+}
+
+[data-awsui-motion="enabled"] .network-connection-line:hover {
+  box-shadow: 0 0 8px var(--brand-primary);
+}
+
+/* Agent card enhancements */
+.agent-card {
+  border: 2px solid var(--brand-primary);
+  background: rgba(var(--brand-primary), 0.02);
+  transition: all var(--motion-duration-normal) var(--motion-easing);
+}
+
+[data-awsui-motion="enabled"] .agent-card:hover {
+  border-color: var(--brand-info);
+  background: rgba(var(--brand-primary), 0.05);
+  transform: scale(1.02);
+}
+
+/* Responsive design enhancements */
+@media (max-width: 768px) {
+  [data-awsui-density="comfortable"] {
+    --spacing-scale: var(--spacing-compact);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-awsui-motion="enabled"] * {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0.01ms !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  :root {
+    --brand-primary: #0066cc;
+    --brand-secondary: #000000;
+    --brand-error: #cc0000;
+    --brand-success: #006600;
+  }
+}
+
+/* Print mode adjustments */
+@media print {
+  [data-awsui-motion="enabled"] * {
+    animation: none !important;
+    transition: none !important;
+  }
+  
+  .awsui-button,
+  .awsui-modal,
+  .help-panel {
+    display: none !important;
+  }
+}
+
+/* Custom utility classes */
+.theme-aware-background {
+  background: rgba(var(--brand-primary), 0.05);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.theme-aware-border {
+  border: 1px solid rgba(var(--brand-primary), 0.2);
+  border-radius: 4px;
+}
+
+.theme-aware-text-primary {
+  color: var(--brand-primary);
+}
+
+.theme-aware-text-secondary {
+  color: var(--brand-secondary);
+}
+
+/* Loading state improvements */
+.content-loading {
+  position: relative;
+  overflow: hidden;
+}
+
+.content-loading::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  animation: loading-sweep 1.5s infinite;
+}
+
+@keyframes loading-sweep {
+  0% { left: -100%; }
+  100% { left: 100%; }
+}
+
+[data-awsui-color-scheme="dark"] .content-loading::after {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.1),
+    transparent
+  );
+}

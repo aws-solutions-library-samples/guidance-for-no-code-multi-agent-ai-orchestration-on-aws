@@ -1,0 +1,418 @@
+/* Deployment Status Modal Styles */
+
+.deployment-status-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.deployment-status-modal {
+  background: white;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  animation: deploymentModalSlide 0.3s ease-out;
+}
+
+@keyframes deploymentModalSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-50px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.deployment-status-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px 25px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.deployment-status-header h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.deployment-close-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.deployment-close-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.deployment-status-content {
+  padding: 25px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.deployment-agent-info {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 25px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.agent-icon {
+  font-size: 2rem;
+}
+
+.deployment-agent-info h3 {
+  margin: 0 0 5px 0;
+  color: #2c3e50;
+  font-size: 1.2rem;
+}
+
+.deployment-agent-info p {
+  margin: 0;
+  color: #6c757d;
+  font-size: 0.9rem;
+}
+
+.deployment-progress {
+  margin-bottom: 25px;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+  color: #495057;
+}
+
+.elapsed-time {
+  color: #6c757d;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #2196f3;
+  border-radius: 4px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+  position: relative;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  animation: progressShimmer 2s infinite;
+}
+
+@keyframes progressShimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.current-status {
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #e3f2fd;
+  border-radius: 6px;
+  border-left: 4px solid #2196f3;
+  font-size: 0.9rem;
+}
+
+.deployment-log {
+  margin-bottom: 20px;
+}
+
+.deployment-log h4 {
+  margin: 0 0 12px 0;
+  color: #495057;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.log-content {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.log-entry {
+  display: flex;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.log-entry:last-child {
+  margin-bottom: 0;
+}
+
+.log-timestamp {
+  color: #6c757d;
+  margin-right: 12px;
+  font-family: 'Courier New', monospace;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.log-message {
+  flex: 1;
+}
+
+/* Log entry types */
+.log-entry.info .log-message {
+  color: #495057;
+}
+
+.log-entry.green .log-message {
+  color: #28a745;
+  font-weight: 500;
+}
+
+.log-entry.blue .log-message {
+  color: #007bff;
+}
+
+.log-entry.yellow .log-message {
+  color: #ffc107;
+  font-weight: 500;
+}
+
+.log-entry.red .log-message {
+  color: #dc3545;
+  font-weight: 500;
+}
+
+.deployment-error {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.deployment-error h4 {
+  margin: 0 0 10px 0;
+  color: #721c24;
+  font-size: 1rem;
+}
+
+.deployment-error p {
+  margin: 0 0 8px 0;
+  color: #721c24;
+  font-size: 0.9rem;
+}
+
+.deployment-error p:last-child {
+  margin-bottom: 0;
+}
+
+.deployment-success {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.deployment-success h4 {
+  margin: 0 0 10px 0;
+  color: #155724;
+  font-size: 1rem;
+}
+
+.deployment-success p {
+  margin: 0 0 8px 0;
+  color: #155724;
+  font-size: 0.9rem;
+}
+
+.deployment-success p:last-child {
+  margin-bottom: 0;
+}
+
+.deployment-status-actions {
+  padding: 20px 25px;
+  border-top: 1px solid #e9ecef;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  background: #f8f9fa;
+}
+
+.retry-btn, .close-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 100px;
+}
+
+.retry-btn {
+  background: #ffc107;
+  color: #212529;
+}
+
+.retry-btn:hover {
+  background: #e0a800;
+  transform: translateY(-1px);
+}
+
+.close-btn {
+  background: #6c757d;
+  color: white;
+}
+
+.close-btn:hover {
+  background: #5a6268;
+  transform: translateY(-1px);
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .deployment-status-modal {
+    width: 95%;
+    margin: 10px;
+  }
+  
+  .deployment-status-header {
+    padding: 15px 20px;
+  }
+  
+  .deployment-status-header h2 {
+    font-size: 1.3rem;
+  }
+  
+  .deployment-status-content {
+    padding: 20px;
+  }
+  
+  .deployment-agent-info {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+  
+  .progress-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+  }
+  
+  .log-content {
+    max-height: 150px;
+  }
+  
+  .deployment-status-actions {
+    padding: 15px 20px;
+    flex-direction: column;
+  }
+  
+  .retry-btn, .close-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .deployment-status-modal {
+    width: 98%;
+    max-height: 90vh;
+  }
+  
+  .log-entry {
+    flex-direction: column;
+    gap: 2px;
+  }
+  
+  .log-timestamp {
+    min-width: auto;
+    margin-right: 0;
+    font-size: 0.8rem;
+  }
+}
+
+/* Dark mode support (if implemented) */
+@media (prefers-color-scheme: dark) {
+  .deployment-status-modal {
+    background: #2c3e50;
+    color: #ecf0f1;
+  }
+  
+  .deployment-status-content {
+    background: #2c3e50;
+  }
+  
+  .deployment-agent-info {
+    background: #34495e;
+    color: #ecf0f1;
+  }
+  
+  .deployment-agent-info h3 {
+    color: #ecf0f1;
+  }
+  
+  .current-status {
+    background: #34495e;
+    color: #ecf0f1;
+  }
+  
+  .log-content {
+    background: #34495e;
+    border-color: #4a5f7a;
+    color: #ecf0f1;
+  }
+  
+  .deployment-status-actions {
+    background: #34495e;
+    border-color: #4a5f7a;
+  }
+}

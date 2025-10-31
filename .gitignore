@@ -1,0 +1,48 @@
+*.swp
+.pytest_cache
+*.egg-info
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# CDK Context & Staging files
+.cdk.staging/
+cdk.out/
+cdk.out.deploy/
+ca-cert.pem
+ca-key.pem
+# config/development.yaml
+rsa_key.p8
+cdk.out2/
+application_src/logs/*.log
+application_src/logs/*.pid
+application_src/.dev-config
+application_src/.ui-react/
+application_src/ui-react-cloudscape/node_modules/
+application_src/ui-react-cloudscape/build/
+application_src/ui-react-cloudscape/.env.local
+application_src/ui-react-cloudscape/.env.development.local
+application_src/ui-react-cloudscape/.env.test.local
+application_src/ui-react-cloudscape/.env.production.local
+application_src/ui-react-cloudscape/npm-debug.log*
+application_src/ui-react-cloudscape/yarn-debug.log*
+application_src/ui-react-cloudscape/yarn-error.log*
+.dev-config
+.idea/
+cdk.context.json
+.vscode/
+codeql-db/
+codeql-demo-db/
+codeql/
+codeql-bundle-osx64.tar.gz

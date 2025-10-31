@@ -1,0 +1,28 @@
+{
+    "region": "",
+    "embedding_model_id": "amazon.titan-embed-text-v1",
+    "bedrock_kb_id": "",
+    "metadata_bucket": "",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "documents": [
+        {
+            "bucket_name": "",
+            "object_key": "",
+            "metadata": {
+                "title": "",
+                "author": "",
+                "source": "",
+                "category": "",
+                "tags": []
+            }
+        }
+    ],
+    "queries": [
+        {
+            "text": "",
+            "top_k": 3,
+            "filters": {}
+        }
+    ]
+}

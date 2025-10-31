@@ -1,0 +1,30 @@
+{
+    "region": "us-east-1",
+    "embedding_model_id": "amazon.titan-embed-text-v2:0",
+    "elasticsearch_endpoint": "",
+    "elasticsearch_index": "genai-documents-test",
+    "elasticsearch_api_key": "",
+    "metadata_bucket": "",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "documents": [
+        {
+            "bucket_name": "genai-in-a-box-test",
+            "object_key": "dev/2024-Shareholder-Letter-Final.pdf",
+            "metadata": {
+                "title": "2024 Shareholder Letter",
+                "author": "Amazon",
+                "source": "Amazon Documentation",
+                "category": "Shareholder Letter",
+                "tags": ["Amazon", "Business", "Finance"]
+            }
+        }
+    ],
+    "queries": [
+        {
+            "text": "What leadership principles were discussed in the call",
+            "top_k": 3,
+            "filters": {}
+        }
+    ]
+}

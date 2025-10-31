@@ -1,0 +1,8 @@
+# Adding to ignore list for gitleaks scans as these are test cases with mocked sensitive data to validate data protection functionality.
+# The actual sensitive data patterns are not present in the codebase.
+efae53b727483f39decb0205cb2e3044560a66a8:tests/test_data_protection.py:generic-api-key:449
+efae53b727483f39decb0205cb2e3044560a66a8:tests/test_data_protection.py:aws-access-token:441
+efae53b727483f39decb0205cb2e3044560a66a8:tests/test_data_protection.py:generic-api-key:467
+efae53b727483f39decb0205cb2e3044560a66a8:tests/test_data_protection.py:aws-access-token:397
+efae53b727483f39decb0205cb2e3044560a66a8:docs/DATA_PROTECTION_IMPLEMENTATION.md:generic-api-key:288
+efae53b727483f39decb0205cb2e3044560a66a8:tests/test_data_protection.py:aws-access-token:437

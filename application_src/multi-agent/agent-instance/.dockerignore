@@ -1,0 +1,44 @@
+# .dockerignore for Agent Instance
+# Minimize Docker build context while maintaining shared common/ access
+
+# ===== EXCLUDE OTHER SERVICES =====
+# Exclude all other service directories to minimize build context
+configuration-api/
+ui-react/
+ui-react-cloudscape/
+multi-agent/agent-supervisor/
+
+# ===== EXCLUDE DEVELOPMENT FILES =====
+# Development and testing files
+**/.git/
+**/.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.coverage
+**/htmlcov/
+**/.env*
+**/.DS_Store
+
+# Documentation and examples
+**/*.md
+**/README*
+**/docs/
+**/examples/
+
+# IDE and editor files
+**/.vscode/
+**/.idea/
+**/*.swp
+**/*.swo
+
+# ===== KEEP REQUIRED FILES =====
+# Keep multi-agent/agent-instance/ directory (current service)
+!multi-agent/agent-instance/
+
+# Keep common/ directory (shared dependencies)
+!common/
+
+# Keep root files needed for builds
+!docker-compose.yml
+!sync-common.sh

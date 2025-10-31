@@ -1,0 +1,38 @@
+fastapi
+uvicorn
+pydantic
+strands-agents
+strands-agents-tools
+boto3
+mcp
+elasticsearch
+python-dotenv 
+aiohttp 
+httpx
+sseclient-py
+uv
+mem0ai
+langfuse
+opensearch-py
+faiss-cpu
+langchain
+langchain-elasticsearch
+langchain_aws
+langchain-community
+langchain-mongodb
+pymongo
+snowflake-snowpark-python
+PyJWT
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+opentelemetry-exporter-otlp-proto-http
+traceloop-sdk
+strands-agents-tools[use_aws]
+strands-agents-tools[http_request]
+strands-agents-tools[load_tool]
+strands-agents-tools[mcp_client]
+bedrock-agentcore
+# Security: Pin vulnerable packages to secure versions
+requests>=2.32.0  # Fix for GHSA-9hjg-9r4m-mvj7, GHSA-9wx4-h78v-vm56
+python-multipart>=0.0.10  # Fix for GHSA-59g5-xgcq-4qw3, GHSA-2jv5-9r88-3w3p

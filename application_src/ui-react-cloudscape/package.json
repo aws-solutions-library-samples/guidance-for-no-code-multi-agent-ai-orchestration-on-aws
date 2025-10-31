@@ -1,0 +1,55 @@
+{
+  "name": "agentic-ai-ui",
+  "version": "0.1.0",
+  "private": true,
+  "dependencies": {
+    "@aws-amplify/auth": "6.0.0",
+    "@aws-amplify/core": "6.0.0",
+    "@aws-sdk/client-secrets-manager": "3.600.0",
+    "@cloudscape-design/components": "3.0.1106",
+    "@cloudscape-design/global-styles": "1.0.46",
+    "aws-amplify": "6.0.0",
+    "axios": "^1.12.2",
+    "concurrently": "7.6.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-session": "^1.18.2",
+    "helmet": "^8.1.0",
+    "i18next": "23.7.16",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "react-i18next": "14.0.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "PORT=3000 react-scripts start",
+    "start:backend": "node server.js",
+    "start:dev": "concurrently \"npm run start:backend\" \"npm start\"",
+    "dev": "concurrently \"npm run start:backend\" \"npm start\"",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "overrides": {
+    "nth-check": "^2.1.1",
+    "postcss": "^8.4.31"
+  }
+}

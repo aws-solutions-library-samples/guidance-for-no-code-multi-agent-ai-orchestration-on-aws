@@ -1,0 +1,37 @@
+# Core Strands Agent Dependencies
+git+https://github.com/strands-agents/sdk-python.git
+strands-agents-tools
+git+https://github.com/strands-agents/sdk-python.git#egg=strands-agents[a2a]
+strands-agents-tools[a2a_client]
+
+# HTTP Client
+httpx[http2]>=0.24.0
+
+# AWS Dependencies
+boto3
+
+# Knowledge Base Providers
+# Snowflake support
+snowflake-connector-python
+
+# Elasticsearch support
+langchain_community
+langchain-elasticsearch
+langchain_aws
+elasticsearch
+
+# Observability dependencies
+langfuse==2.50.2
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+opentelemetry-exporter-otlp-proto-http
+
+# Additional dependencies that might be needed by various agent configurations
+# (Add more as new agent types are created)
+
+bedrock-agentcore
+
+# Security: Pin vulnerable packages to secure versions
+requests>=2.32.0  # Fix for GHSA-9hjg-9r4m-mvj7, GHSA-9wx4-h78v-vm56
+python-multipart>=0.0.10  # Fix for GHSA-59g5-xgcq-4qw3, GHSA-2jv5-9r88-3w3p
