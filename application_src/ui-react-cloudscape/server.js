@@ -70,9 +70,11 @@ const validateUrl = (url) => {
       throw new Error(`Hostname not in whitelist: ${hostname}`);
     }
     
-    // Additional port restrictions - must be in whitelist
+    // Additional port restrictions - must be in whitelist for non-AWS infrastructure
     const port = parsedUrl.port ? parseInt(parsedUrl.port) : (parsedUrl.protocol === 'https:' ? 443 : 80);
-    if (parsedUrl.port && !ALLOWED_PORTS.includes(port)) {
+    
+    // For AWS infrastructure domains, allow any port (VPC Lattice may use non-standard ports)
+    if (parsedUrl.port && !isAWSInfrastructure && !ALLOWED_PORTS.includes(port)) {
       throw new Error(`Port not in whitelist: ${port}`);
     }
     
