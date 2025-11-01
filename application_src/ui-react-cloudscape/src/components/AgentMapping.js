@@ -349,27 +349,65 @@ const AgentMapping = ({
     setShowDeleteConfirmation(true);
   };
 
-  const confirmDeleteAgent = async () => {
+  const confirmDeleteAgent = async (event) => {
+    // Prevent default form submission or page refresh
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    
     if (!selectedAgentForDeletion) return;
     
+    // Extract agent name if URL was passed (defensive programming)
+    let agentNameToDelete = selectedAgentForDeletion;
+    
+    // If selectedAgentForDeletion looks like a URL, extract the agent name from agentMappingData
+    if (agentNameToDelete.startsWith('http://') || agentNameToDelete.startsWith('https://')) {
+      console.log('[AgentMapping] URL detected, extracting agent name from mapping data');
+      if (agentMappingData?.agent_mapping?.[agentNameToDelete]) {
+        agentNameToDelete = agentMappingData.agent_mapping[agentNameToDelete].agent_name;
+        console.log('[AgentMapping] Extracted agent name:', agentNameToDelete);
+      } else {
+        setError(`Cannot delete agent: unable to determine agent name from URL ${agentNameToDelete}`);
+        setIsDeletingAgent(false);
+        setSelectedAgentForDeletion(null);
+        return;
+      }
+    }
+    
+    console.log('[AgentMapping] Starting agent deletion:', agentNameToDelete);
     setIsDeletingAgent(true);
     setShowDeleteConfirmation(false);
     
     try {
       const configService = await import('../services/configuration');
       
-      // Step 1: Initiate agent deletion and wait for completionconst deletionResult = await configService.default.deleteAgentComplete(selectedAgentForDeletion, true);// Step 2: Wait a moment for infrastructure cleanup to propagateawait new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+      console.log('[AgentMapping] Calling deleteAgentComplete API with agent name:', agentNameToDelete);
+      // Step 1: Initiate agent deletion and wait for completion
+      const deletionResult = await configService.default.deleteAgentComplete(agentNameToDelete, true);
+      console.log('[AgentMapping] Delete API response:', deletionResult);
+
+      // Step 2: Wait a moment for infrastructure cleanup to propagate
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
       
       // Step 3: Refresh supervisor cache first
       try {
         await configService.default.refreshSupervisorAgentCache();
       } catch (supervisorError) {
+        console.warn('[AgentMapping] Supervisor refresh failed:', supervisorError);
         // Continue even if supervisor refresh fails
       }
       
-      // Step 4: Refresh the local agent listawait onRefreshAgents();
+      // Step 4: Refresh the local agent list
+      await onRefreshAgents();
       
-      // Step 5: Finally reload the agent mapping to reflect changesawait loadAgentMappings();} catch (error) {setError(`Failed to delete agent "${selectedAgentForDeletion}": ${error.message}`);
+      // Step 5: Finally reload the agent mapping to reflect changes
+      await loadAgentMappings();
+      
+      console.log('[AgentMapping] Agent deletion completed successfully');
+    } catch (error) {
+      console.error('[AgentMapping] Agent deletion failed:', error);
+      setError(`Failed to delete agent "${selectedAgentForDeletion}": ${error.message}`);
     } finally {
       setIsDeletingAgent(false);
       setSelectedAgentForDeletion(null);

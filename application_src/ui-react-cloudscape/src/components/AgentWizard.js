@@ -1080,7 +1080,8 @@ const AgentWizard = ({
     }
   };
 
-  const handleSaveConfiguration = async () => {// Use the same structure as handleCreateAgent to ensure all required fields are included
+  const handleSaveConfiguration = async () => {
+    // Use the same structure as handleCreateAgent to ensure all required fields are included
     const agentConfigRequest = {
       // Basic information - REQUIRED FIELDS - use actual form data
       agent_name: selectedAgentForConfig,
@@ -1091,7 +1092,18 @@ const AgentWizard = ({
       system_prompt_name: agentData.agent_basic_system_prompt_name || agentData.system_prompt_name || `${selectedAgentForConfig}_system_prompt`,
       system_prompt: agentData.agent_basic_system_prompt || agentData.system_prompt || `You are ${selectedAgentForConfig}, ${agentData.agent_basic_agent_description || agentData.agent_description || 'a helpful AI assistant'}`,
       
-      // Extract model configuration dynamically from form fields (same as other components)
+      // Initialize ALL required component fields with defaults - CRITICAL FIX for 422 error
+      memory: 'False',
+      memory_provider: 'default',
+      knowledge_base: 'False',
+      knowledge_base_provider: 'default',
+      knowledge_base_provider_type: 'custom',
+      observability: 'False',
+      observability_provider: 'default',
+      guardrail: 'False',
+      guardrail_provider: 'default',
+      
+      // Model configuration - extract dynamically from form fields
       ...((() => {
         const modelsConfig = {};
         const modelsProvider = agentData['models_provider'] || 'bedrock';
