@@ -46,3 +46,14 @@ codeql-db/
 codeql-demo-db/
 codeql/
 codeql-bundle-osx64.tar.gz
+
+# Jekyll
+assets/jekyll-site/_site/
+assets/jekyll-site/.jekyll-cache/
+assets/jekyll-site/.jekyll-metadata
+assets/jekyll-site/Gemfile.lock
+assets/jekyll-site/.sass-cache/
+assets/jekyll-site/README.md
+assets/jekyll-site/index.md
+assets/jekyll-site/images/
+assets/jekyll-site/assets/

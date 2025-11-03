@@ -1,0 +1,77 @@
+name: Deploy Jekyll Site to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main  # Change to your default branch if different
+    paths:
+      - 'README.md'
+      - 'assets/**'
+      - '.github/workflows/jekyll-deploy.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.1'
+          bundler-cache: true
+          working-directory: ./assets/jekyll-site
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Copy README to Jekyll site
+        run: |
+          cp README.md assets/jekyll-site/index.md
+          echo "---" > assets/jekyll-site/index.md.tmp
+          echo "layout: default" >> assets/jekyll-site/index.md.tmp
+          echo "title: Home" >> assets/jekyll-site/index.md.tmp
+          echo "---" >> assets/jekyll-site/index.md.tmp
+          echo "" >> assets/jekyll-site/index.md.tmp
+          cat README.md >> assets/jekyll-site/index.md.tmp
+          mv assets/jekyll-site/index.md.tmp assets/jekyll-site/index.md
+
+      - name: Copy assets to Jekyll site
+        run: |
+          mkdir -p assets/jekyll-site/assets
+          cp -r assets/images assets/jekyll-site/assets/ || true
+
+      - name: Build Jekyll site
+        working-directory: ./assets/jekyll-site
+        run: bundle exec jekyll build
+        env:
+          JEKYLL_ENV: production
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./assets/jekyll-site/_site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
