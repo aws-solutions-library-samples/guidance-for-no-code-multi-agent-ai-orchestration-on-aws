@@ -11,6 +11,7 @@ from .base import BaseMemoryProvider
 from .mem0 import Mem0MemoryProvider
 from .opensearch import OpenSearchMemoryProvider
 from .bedrock_agentcore import BedrockAgentCoreMemoryProvider
+from .elasticsearch import ElasticsearchMemory
 
 class MemoryFactory:
     """Factory for creating memory providers."""
@@ -35,6 +36,8 @@ class MemoryFactory:
             return OpenSearchMemoryProvider(memory_config)
         elif provider == "bedrock_agentcore":
             return BedrockAgentCoreMemoryProvider(memory_config)
+        elif provider == "elasticsearch":
+            return ElasticsearchMemory(memory_config)
         else:
             print(f"Unknown memory provider: {provider}")
             return None

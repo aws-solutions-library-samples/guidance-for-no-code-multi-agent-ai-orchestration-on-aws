@@ -644,6 +644,72 @@ class FormSchemaRegistry:
                         }
                     )
                 ]
+            ),
+            
+            "elasticsearch": ProviderFormSchema(
+                provider_name="elasticsearch",
+                provider_label="Elasticsearch",
+                description="Elasticsearch memory storage with semantic search capabilities using strands-tools elasticsearch_memory",
+                fields=[
+                    FormField(
+                        name="enabled",
+                        type=FieldType.CHECKBOX,
+                        label="Enable Memory Integration",
+                        help_text="Enable Elasticsearch memory integration for conversation context and semantic search",
+                        required=False,
+                        default_value=False
+                    ),
+                    FormField(
+                        name="elasticsearch_url",
+                        type=FieldType.URL,
+                        label="Elasticsearch URL",
+                        placeholder="http://localhost:9200",
+                        help_text="The URL of your Elasticsearch cluster",
+                        required=True,
+                        conditional={
+                            "field": "enabled",
+                            "value": True
+                        }
+                    ),
+                    FormField(
+                        name="index_name",
+                        type=FieldType.TEXT,
+                        label="Index Name",
+                        placeholder="agent_memory",
+                        help_text="The name of the Elasticsearch index for memory storage",
+                        required=True,
+                        default_value="agent_memory",
+                        conditional={
+                            "field": "enabled",
+                            "value": True
+                        }
+                    ),
+                    FormField(
+                        name="username",
+                        type=FieldType.TEXT,
+                        label="Username (Optional)",
+                        placeholder="elastic",
+                        help_text="Elasticsearch username for authentication (optional)",
+                        required=False,
+                        conditional={
+                            "field": "enabled",
+                            "value": True
+                        }
+                    ),
+                    FormField(
+                        name="password",
+                        type=FieldType.PASSWORD,
+                        label="Password (Optional)",
+                        placeholder="Enter password",
+                        help_text="Elasticsearch password for authentication (optional)",
+                        required=False,
+                        secure=True,
+                        conditional={
+                            "field": "enabled",
+                            "value": True
+                        }
+                    )
+                ]
             )
         }
     
