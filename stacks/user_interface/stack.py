@@ -66,6 +66,8 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
                  cognito_resources,  # CognitoResources from authentication stack
                  config: Config,
                  **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "Web application UI with React and CloudScape for multi-agent AI management - (Solution ID - SO9637)"
         # Initialize with FargateServiceStack to inherit shared logging functionality
         super().__init__(scope, construct_id, cluster.vpc, cluster, "", config, **kwargs)
 

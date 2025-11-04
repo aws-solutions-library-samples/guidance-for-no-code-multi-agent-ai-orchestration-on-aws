@@ -12,6 +12,8 @@ class KMSStack(BaseStack):
     """Stack for creating KMS keys used across the application."""
     
     def __init__(self, scope: Construct, construct_id: str, config: Config, **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "KMS encryption keys for SSM Parameter Store and secure data protection - (Solution ID - SO9637)"
         super().__init__(scope, construct_id, config, **kwargs)
         
         # Create KMS key for SSM Parameter Store encryption

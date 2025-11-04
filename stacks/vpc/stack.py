@@ -28,6 +28,8 @@ class VpcStack(BaseStack, LoadBalancerLoggingMixin):
                  construct_id: str,
                  config: Config,
                  **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "VPC and networking infrastructure for multi-agent orchestration platform - (Solution ID - SO9637)"
         super().__init__(scope, construct_id, config, **kwargs)
 
         # Get configuration values

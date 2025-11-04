@@ -37,6 +37,8 @@ class AuthenticationStack(BaseStack, CognitoMixin):
                  construct_id: str,
                  config: Config,
                  **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "Cognito User Pool for secure user authentication and authorization - (Solution ID - SO9637)"
         super().__init__(scope, construct_id, config, **kwargs)
         
         # Get configuration values
