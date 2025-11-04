@@ -1,5 +1,5 @@
 """
-SO9637: Authentication Stack - Decoupled Cognito User Pool Infrastructure
+Authentication Stack - Decoupled Cognito User Pool Infrastructure
 
 This stack creates and manages the Cognito User Pool and related authentication
 resources independently from the UI stack, allowing for better modularity and
