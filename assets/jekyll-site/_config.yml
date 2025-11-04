@@ -1,8 +1,8 @@
 # Jekyll Configuration for GitHub Pages
 title: Guidance for Agentic AI Accelerator on AWS
 description: Enterprise-grade multi-agent AI orchestration platform built on AWS managed services
-baseurl: "" # the subpath of your site, e.g. /blog
-url: "" # the base hostname & protocol for your site
+baseurl: "/guidance-for-no-code-multi-agent-ai-orchestration-on-aws" # the subpath of your site
+url: "https://aws-solutions-library-samples.github.io" # the base hostname & protocol for your site
 
 # GitHub Pages settings
 theme: minima
