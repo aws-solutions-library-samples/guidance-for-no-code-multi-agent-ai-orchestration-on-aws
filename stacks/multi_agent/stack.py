@@ -48,6 +48,10 @@ class MultiAgentStack(FargateServiceStack):
                  cluster_name: str = None,
                  access_log_bucket_name: str = None,
                  **kwargs) -> None:
+        # Add description to kwargs if not already present
+        if 'description' not in kwargs:
+            kwargs['description'] = "Generic agent service template for dynamic multi-agent deployment - (Solution ID - SO9637)"
+        
         # Handle both VPC object and VPC ID token for CloudFormation imports
         # Import resources BEFORE calling super().__init__() so we can pass them
         if vpc is None and vpc_id is not None:

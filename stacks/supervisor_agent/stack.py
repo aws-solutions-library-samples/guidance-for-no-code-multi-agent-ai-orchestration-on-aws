@@ -52,6 +52,8 @@ class SupervisorAgentStack(FargateServiceStack, LoadBalancerLoggingMixin):
                  cognito_resources,  # CognitoResources from authentication stack
                  conf: Config,
                  **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "Supervisor Agent service for orchestrating and coordinating multi-agent workflows - (Solution ID - SO9637)"
         # Initialize with FargateServiceStack - use empty string for service_network_arn since we're using ALB
         super().__init__(scope, construct_id, vpc, cluster, "", conf, **kwargs)
         

@@ -44,6 +44,8 @@ class IAMBoundariesStack(BaseStack):
             config: Configuration object
             **kwargs: Additional keyword arguments for Stack
         """
+        # Add solution ID and description
+        kwargs['description'] = "IAM permissions boundary policies for secure role-based access control - (Solution ID - SO9637)"
         super().__init__(scope, construct_id, config, **kwargs)
         
         # Store boundary policies for cross-stack references

@@ -1,5 +1,5 @@
 """
-Authentication Stack - Decoupled Cognito User Pool Infrastructure
+SO9637: Authentication Stack - Decoupled Cognito User Pool Infrastructure
 
 This stack creates and manages the Cognito User Pool and related authentication
 resources independently from the UI stack, allowing for better modularity and
@@ -37,6 +37,8 @@ class AuthenticationStack(BaseStack, CognitoMixin):
                  construct_id: str,
                  config: Config,
                  **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "Cognito User Pool for secure user authentication and authorization - (Solution ID - SO9637)"
         super().__init__(scope, construct_id, config, **kwargs)
         
         # Get configuration values

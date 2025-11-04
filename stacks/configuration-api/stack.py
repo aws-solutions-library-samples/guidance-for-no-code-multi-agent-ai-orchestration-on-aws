@@ -40,6 +40,8 @@ class ConfigurationApiStack(FargateServiceStack, LoadBalancerLoggingMixin):
                  template_bucket: s3.IBucket,  # S3 bucket for CloudFormation templates
                  conf: Config,
                  **kwargs) -> None:
+        # Add solution ID and description
+        kwargs['description'] = "Configuration API service for managing multi-agent AI deployments and configurations - (Solution ID - SO9637)"
         # Pass service_network_arn for environment variable but use ALB for access
         super().__init__(scope, construct_id, vpc, cluster, service_network_arn, conf, **kwargs)
         

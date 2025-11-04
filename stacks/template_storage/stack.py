@@ -35,6 +35,8 @@ class TemplateStorageStack(Stack):
             project_name: Project name for resource naming
             **kwargs: Additional stack arguments
         """
+        # Add solution ID and description
+        kwargs['description'] = "S3 bucket for storing CloudFormation templates used for dynamic agent deployment - (Solution ID - SO9637)"
         super().__init__(scope, construct_id, **kwargs)
         
         # Create S3 bucket for CloudFormation templates
