@@ -728,9 +728,36 @@ class DeploymentService:
             update_params['Parameters'] = cfn_parameters
             logger.info(f"Final parameters for CloudFormation update (AgentName={agent_name} is first): {[p['ParameterKey'] for p in cfn_parameters]}")
             
-            # Add update tags
+            # Add update tags - ensure ManagedBy tag is always present
             existing_tags = stack_info.get('tags', [])
             update_tags = [tag for tag in existing_tags if not tag['Key'].startswith('aws:')]
+            
+            # Ensure ManagedBy tag is present (required for deletion permission)
+            has_managed_by_tag = any(tag['Key'] == 'ManagedBy' and tag['Value'] == 'ConfigurationAPI' 
+                                   for tag in update_tags)
+            
+            if not has_managed_by_tag:
+                logger.info(f"Adding missing ManagedBy tag to stack: {stack_name}")
+                update_tags.append({
+                    'Key': 'ManagedBy',
+                    'Value': 'ConfigurationAPI'
+                })
+            
+            # Ensure AgentName tag is present and matches the agent
+            agent_name_tag_index = None
+            for i, tag in enumerate(update_tags):
+                if tag['Key'] == 'AgentName':
+                    agent_name_tag_index = i
+                    break
+            
+            if agent_name_tag_index is not None:
+                update_tags[agent_name_tag_index]['Value'] = agent_name
+            else:
+                update_tags.append({
+                    'Key': 'AgentName',
+                    'Value': agent_name
+                })
+            
             update_tags.append({
                 'Key': 'LastUpdatedBy',
                 'Value': 'ConfigurationAPI'
