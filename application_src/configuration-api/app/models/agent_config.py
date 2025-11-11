@@ -71,6 +71,10 @@ class AgentConfigRequest(BaseModel):
     
     # Model configuration
     model_id: str = Field(..., description="Primary model identifier")
+    model_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Multiple model identifiers for dynamic model switching"
+    )
     judge_model_id: str = Field(..., description="Judge model identifier")
     embedding_model_id: str = Field(..., description="Embedding model identifier")
     region_name: str = Field(..., description="AWS region name")
@@ -162,6 +166,10 @@ class AgentConfigResponse(BaseModel):
     
     # Model configuration
     model_id: str = Field(..., description="Primary model identifier")
+    model_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Multiple model identifiers for dynamic model switching"
+    )
     judge_model_id: str = Field(..., description="Judge model identifier")
     embedding_model_id: str = Field(..., description="Embedding model identifier")
     region_name: str = Field(..., description="AWS region name")

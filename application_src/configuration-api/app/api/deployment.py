@@ -13,9 +13,9 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Body
 from pydantic import BaseModel, Field
 
-from app.services.cloudformation_deployment_service import CloudFormationDeploymentService
+from app.services.deployment_service import DeploymentService
 from app.services.agent_config_service import AgentConfigService
-from app.utils.dependencies import get_cloudformation_deployment_service, get_agent_config_service
+from app.utils.dependencies import get_deployment_service, get_agent_config_service
 from app.models import AgentConfigRequest
 
 # Authentication middleware imports
@@ -65,7 +65,7 @@ async def deploy_agent_stack(
     background_tasks: BackgroundTasks,
     current_user: UserInfo = Depends(get_current_user),
     _: None = Depends(RequirePermission("agent:deploy")),
-    cfn_service: CloudFormationDeploymentService = Depends(get_cloudformation_deployment_service)
+    deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
     Deploy a new agent stack using CloudFormation API.
@@ -100,11 +100,14 @@ async def deploy_agent_stack(
                 detail="Agent name must contain only letters, numbers, underscores, and hyphens"
             )
         
-        # Deploy the stack using CloudFormation
-        result = cfn_service.deploy_agent_stack(
-            agent_name=request.agent_name,
-            parameters=request.parameters,
-            timeout_minutes=request.timeout_minutes
+        # Deploy the stack using CloudFormation template from S3
+        # Use consistent naming pattern throughout all operations
+        new_stack_name = deployment_service.get_stack_name_from_agent(request.agent_name)
+        
+        result = await deployment_service.create_agent_stack(
+            new_agent_name=request.agent_name,
+            new_stack_name=new_stack_name,
+            model_config=None  # Will read from SSM
         )
         
         logger.info(f"Successfully deployed stack: {result['stack_name']}")
@@ -136,14 +139,14 @@ async def get_stack_status(
     agent_name: str,
     current_user: UserInfo = Depends(get_current_user),
     _: None = Depends(RequirePermission("agent:read")),
-    cfn_service: CloudFormationDeploymentService = Depends(get_cloudformation_deployment_service)
+    deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
     Get the current status of an agent's CloudFormation stack.
     
     Args:
         agent_name: Name of the agent
-        cfn_service: Injected CloudFormation deployment service
+        deployment_service: Injected deployment service
         
     Returns:
         Current stack status and information
@@ -154,19 +157,21 @@ async def get_stack_status(
     try:
         logger.info(f"Retrieving status for agent: {agent_name}")
         
-        status_info = cfn_service.get_stack_info(agent_name)
+        # Find the stack for this agent first
+        stack_info = await deployment_service.find_agent_stack_by_name(agent_name)
+        
+        if not stack_info:
+            raise HTTPException(status_code=404, detail="Agent stack not found")
+        
+        status_info = await deployment_service.get_stack_status(stack_info['stack_name'])
         
         return StackStatusResponse(**status_info)
         
-    except RuntimeError as e:
+    except HTTPException:
+        raise
+    except Exception as e:
         logger.error("Error retrieving stack status")
         log_exception_safely(logger, "Error retrieving stack status", e)
-        if 'not found' in str(e).lower():
-            raise HTTPException(status_code=404, detail="Agent stack not found")
-        raise HTTPException(status_code=500, detail="Failed to retrieve stack status")
-    except Exception as e:
-        logger.error("Unexpected error retrieving stack status")
-        log_exception_safely(logger, "Unexpected error retrieving stack status", e)
         raise HTTPException(status_code=500, detail="Failed to retrieve stack status")
 
 
@@ -174,13 +179,13 @@ async def get_stack_status(
 async def list_agent_stacks(
     current_user: UserInfo = Depends(get_current_user),
     _: None = Depends(RequirePermission("agent:read")),
-    cfn_service: CloudFormationDeploymentService = Depends(get_cloudformation_deployment_service)
+    deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
     List all agent stacks with their current status.
     
     Args:
-        cfn_service: Injected CloudFormation deployment service
+        deployment_service: Injected deployment service
         
     Returns:
         List of agent stacks with status information
@@ -191,21 +196,17 @@ async def list_agent_stacks(
     try:
         logger.info("Retrieving list of agent stacks")
         
-        stacks = cfn_service.list_agent_stacks()
+        stacks = await deployment_service.list_agent_stacks()
         
         return {
             "stacks": stacks,
             "count": len(stacks)
         }
         
-    except RuntimeError as e:
+    except Exception as e:
         logger.error("Error listing agent stacks")
         log_exception_safely(logger, "Error listing agent stacks", e)
         raise HTTPException(status_code=500, detail="Failed to list agent stacks")
-    except Exception as e:
-        logger.error("Unexpected error listing agent stacks")
-        log_exception_safely(logger, "Unexpected error listing agent stacks", e)
-        raise HTTPException(status_code=500, detail="Failed to list stacks")
 
 
 @deployment_router.delete("/stack/{agent_name}")
@@ -214,7 +215,7 @@ async def delete_agent_stack(
     timeout_minutes: int = 30,
     current_user: UserInfo = Depends(get_current_user),
     _: None = Depends(RequirePermission("agent:delete")),
-    cfn_service: CloudFormationDeploymentService = Depends(get_cloudformation_deployment_service)
+    deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
     Delete an agent stack using CloudFormation API.
@@ -222,7 +223,7 @@ async def delete_agent_stack(
     Args:
         agent_name: Name of the agent
         timeout_minutes: Maximum time to wait for deletion
-        cfn_service: Injected CloudFormation deployment service
+        deployment_service: Injected deployment service
         
     Returns:
         Deletion confirmation
@@ -233,29 +234,27 @@ async def delete_agent_stack(
     try:
         logger.info(f"Deleting stack for agent: {agent_name}")
         
-        result = cfn_service.delete_agent_stack(
-            agent_name=agent_name,
-            timeout_minutes=timeout_minutes
-        )
+        # Find the stack for this agent first
+        stack_info = await deployment_service.find_agent_stack_by_name(agent_name)
+        
+        if not stack_info:
+            raise HTTPException(status_code=404, detail="Agent stack not found")
+        
+        result = await deployment_service.delete_stack(stack_info['stack_name'])
         
         return {
             "message": f"Stack deletion completed for agent: {agent_name}",
             "stack_name": result['stack_name'],
-            "agent_name": result['agent_name'],
-            "status": result['status'],
-            "deleted_at": result['deleted_at']
+            "agent_name": agent_name,
+            "status": result['status']
         }
         
-    except RuntimeError as e:
+    except HTTPException:
+        raise
+    except Exception as e:
         logger.error("Error deleting stack")
         log_exception_safely(logger, "Error deleting stack", e)
-        if 'not found' in str(e).lower():
-            raise HTTPException(status_code=404, detail="Agent stack not found")
         raise HTTPException(status_code=500, detail="Failed to delete agent stack")
-    except Exception as e:
-        logger.error("Unexpected error deleting stack")
-        log_exception_safely(logger, "Unexpected error deleting stack", e)
-        raise HTTPException(status_code=500, detail="Failed to delete stack")
 
 
 @deployment_router.put("/stack/{agent_name}")
@@ -265,7 +264,7 @@ async def update_agent_stack(
     timeout_minutes: int = 30,
     current_user: UserInfo = Depends(get_current_user),
     _: None = Depends(RequirePermission("agent:update")),
-    cfn_service: CloudFormationDeploymentService = Depends(get_cloudformation_deployment_service)
+    deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
     Update an existing agent stack using CloudFormation API.
@@ -274,7 +273,7 @@ async def update_agent_stack(
         agent_name: Name of the agent
         parameters: CloudFormation parameters for update
         timeout_minutes: Maximum time to wait for update
-        cfn_service: Injected CloudFormation deployment service
+        deployment_service: Injected deployment service
         
     Returns:
         Update confirmation
@@ -285,10 +284,9 @@ async def update_agent_stack(
     try:
         logger.info(f"Updating stack for agent: {agent_name}")
         
-        result = cfn_service.update_agent_stack(
+        result = await deployment_service.update_agent_stack(
             agent_name=agent_name,
-            parameters=parameters,
-            timeout_minutes=timeout_minutes
+            parameters=parameters
         )
         
         return {
@@ -298,22 +296,13 @@ async def update_agent_stack(
             "outputs": result.get('outputs', {})
         }
         
-    except RuntimeError as e:
+    except ValueError as e:
+        log_exception_safely(logger, e, "Agent stack not found")
+        raise HTTPException(status_code=404, detail="Agent stack not found")
+    except Exception as e:
         logger.error("Error updating stack")
         log_exception_safely(logger, "Error updating stack", e)
-        if 'not found' in str(e).lower():
-            raise HTTPException(status_code=404, detail="Agent stack not found")
-        if 'No updates' in str(e):
-            return {
-                "message": f"No updates needed for agent: {agent_name}",
-                "stack_name": cfn_service._get_stack_name(agent_name),
-                "status": "UP_TO_DATE"
-            }
         raise HTTPException(status_code=500, detail="Failed to update agent stack")
-    except Exception as e:
-        logger.error("Unexpected error updating stack")
-        log_exception_safely(logger, "Unexpected error updating stack", e)
-        raise HTTPException(status_code=500, detail="Failed to update stack")
 
 
 @deployment_router.post("/create-agent")
@@ -322,12 +311,12 @@ async def create_agent(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: UserInfo = Depends(get_current_user),
     _: None = Depends(RequirePermission("agent:deploy")),
-    cfn_service: CloudFormationDeploymentService = Depends(get_cloudformation_deployment_service)
+    deployment_service: DeploymentService = Depends(get_deployment_service)
 ):
     """
     Deploy CloudFormation stack for an agent asynchronously.
     
-    This endpoint initiates CloudFormation stack creation in the background
+    This endpoint initiates CloudFormation stack creation using DeploymentService
     and returns immediately, preventing health check failures.
     
     The UI workflow is:
@@ -339,7 +328,7 @@ async def create_agent(
         request: Request body with:
             - new_agent_name: Name of the agent to deploy
         background_tasks: FastAPI background tasks
-        cfn_service: Injected CloudFormation deployment service
+        deployment_service: Injected deployment service
         
     Returns:
         Immediate response with deployment initiation status
@@ -363,30 +352,13 @@ async def create_agent(
                 detail="Agent name must contain only letters, numbers, underscores, and hyphens"
             )
         
-        # Initiate CloudFormation stack creation (non-blocking)
-        cfn_parameters = {
-            "AgentName": agent_name
-        }
+        # Use consistent naming pattern throughout all operations
+        new_stack_name = deployment_service.get_stack_name_from_agent(agent_name)
         
-        stack_name = cfn_service._get_stack_name(agent_name)
-        
-        # Download template and create stack (fast operations)
-        template_body = cfn_service._download_template("GenericAgentTemplate.json")
-        cfn_parameters_list = cfn_service._convert_parameters(cfn_parameters)
-        
-        # Create stack (returns immediately, doesn't wait for completion)
-        cfn_service.cfn_client.create_stack(
-            StackName=stack_name,
-            TemplateBody=template_body,
-            Parameters=cfn_parameters_list,
-            Capabilities=['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'],
-            Tags=[
-                {'Key': 'ManagedBy', 'Value': 'ConfigurationAPI'},
-                {'Key': 'ProjectName', 'Value': cfn_service.project_name},
-                {'Key': 'AgentName', 'Value': agent_name},
-                {'Key': 'DeployedAt', 'Value': datetime.now().isoformat()}
-            ],
-            TimeoutInMinutes=30
+        result = await deployment_service.create_agent_stack(
+            new_agent_name=agent_name,
+            new_stack_name=new_stack_name,
+            model_config=None  # Will read from SSM
         )
         
         logger.info(f"Stack creation initiated for agent: {agent_name}")
@@ -395,8 +367,8 @@ async def create_agent(
             "status": "initiated",
             "message": f"Infrastructure deployment initiated for agent '{agent_name}'",
             "agent_name": agent_name,
-            "stack_name": stack_name,
-            "deployment_status": "CREATE_IN_PROGRESS",
+            "stack_name": new_stack_name,
+            "deployment_status": result['status'],
             "outputs": {},
             "deployed_at": datetime.now().isoformat()
         }
@@ -404,11 +376,7 @@ async def create_agent(
     except ValueError as e:
         logger.error("Validation error creating agent")
         log_exception_safely(logger, "Validation error creating agent", e)
-        raise HTTPException(status_code=400, detail="Invalid agent creation parameters")
-    except RuntimeError as e:
-        logger.error("Runtime error creating agent")
-        log_exception_safely(logger, "Runtime error creating agent", e)
-        raise HTTPException(status_code=500, detail="Agent creation failed")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error("Error creating agent")
         log_exception_safely(logger, "Error creating agent", e)

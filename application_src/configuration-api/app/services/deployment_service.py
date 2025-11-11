@@ -39,9 +39,16 @@ class DeploymentService:
             # Get region from environment variable with fallback
             self.region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
             self.cloudformation = boto3.client('cloudformation', region_name=self.region)
-            # Get project name from environment or use default
-            self.project_name = os.environ.get('PROJECT_NAME', 'genai-box')
+            self.s3 = boto3.client('s3', region_name=self.region)
+            
+            # Get project name and account for S3 bucket construction
+            self.project_name = os.environ.get('PROJECT_NAME', 'ai-platform')
+            sts = boto3.client('sts')
+            self.account_id = sts.get_caller_identity()['Account']
+            self.template_bucket_name = f"{self.project_name}-templates-{self.account_id}-{self.region}"
+            
             logger.info(f"DeploymentService initialized for region: {self.region}, project: {self.project_name}")
+            logger.info(f"Template bucket: {self.template_bucket_name}")
         except NoCredentialsError:
             logger.error("AWS credentials not found")
             raise ValueError("AWS credentials not configured")
@@ -60,16 +67,14 @@ class DeploymentService:
     
     async def create_agent_stack(
         self,
-        source_stack_name: str,
         new_agent_name: str,
         new_stack_name: str,
         model_config: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Create a new agent stack from an existing template.
+        Create a new agent stack using the template from S3.
         
         Args:
-            source_stack_name: Name of the existing stack to copy template from
             new_agent_name: Name for the new agent (AgentName parameter)
             new_stack_name: Name for the new CloudFormation stack
             model_config: Model configuration (if not provided, will read from SSM)
@@ -78,58 +83,119 @@ class DeploymentService:
             Dictionary containing stack creation information
             
         Raises:
-            ValueError: If source stack not found or validation fails
+            ValueError: If template not found or validation fails
             Exception: If stack creation fails
         """
         try:
-            logger.info(f"Creating agent stack '{new_stack_name}' from source '{source_stack_name}'")
+            logger.info(f"Creating agent stack '{new_stack_name}' for agent '{new_agent_name}'")
             
             # Simplified approach: Agents read all configuration from SSM
             # No need to inject environment variables - cleaner and more reliable
             
-            # Get the template from the source stack
-            template_body = await self._get_stack_template(source_stack_name)
+            # Get the template from S3 (deployed by CDK template-storage stack)
+            template_body = await self._get_template_from_s3("GenericAgentTemplate.json")
             
-            # Only modify the AgentName parameter - agents read everything else from SSM
-            modified_template = self._modify_agent_name_parameter(template_body, new_agent_name)
+            # No template modification needed - parameters are explicitly required
+            # AgentName and ImageTag must be provided as CloudFormation parameters
             
             logger.info(f"Agent {new_agent_name} will read all configuration from SSM parameter: /agent/{new_agent_name}/config")
             
-            # Get the original stack's tags and capabilities
-            source_stack_info = await self._get_stack_info(source_stack_name)
-            
             # Prepare parameters for the new stack
+            logger.debug(f"Building CloudFormation parameters for agent: {new_agent_name}")
+            
             parameters = [
                 {
                     'ParameterKey': 'AgentName',
                     'ParameterValue': new_agent_name
                 }
             ]
+            logger.debug(f"Set AgentName parameter: {new_agent_name}")
+            
+            # CRITICAL: Retrieve and set ImageTag from SSM to ensure correct image version
+            # ImageTag parameter is required - no default value in template
+            logger.info("IMAGE TAG RETRIEVAL FOR AGENT CREATION")
+            
+            image_uri = None
+            try:
+                logger.info(f"Retrieving image URI from SSM Parameter Store: /{self.project_name}/agent/image-uri")
+                
+                image_uri = self._get_image_uri_from_ssm()
+                
+                logger.info(f"Successfully retrieved image URI from SSM: {image_uri}")
+                
+                # Extract and log the tag portion
+                if ':' in image_uri:
+                    tag_portion = image_uri.split(':')[-1]
+                    logger.debug(f"Extracted tag: {tag_portion}")
+                    
+                    # Validate that we don't have "latest" in the image URI
+                    if tag_portion.lower() == 'latest':
+                        logger.error("SSM parameter contains 'latest' tag!")
+                        logger.error("This indicates the ECR image was not properly tagged with SHA256")
+                        logger.error("The CDK deployment may not have completed successfully")
+                        raise ValueError("SSM parameter contains 'latest' tag instead of SHA256 hash")
+                else:
+                    logger.error("No ':' found in image URI from SSM")
+                    logger.error(f"Invalid image URI format: {image_uri}")
+                    raise ValueError("Invalid image URI format - missing tag separator")
+                
+                # IMPORTANT: Pass the FULL image URI, not just the tag
+                # The CloudFormation template expects the complete URI with repository and SHA256 tag
+                parameters.append({
+                    'ParameterKey': 'ImageTag',
+                    'ParameterValue': image_uri
+                })
+                
+                logger.info("Successfully added ImageTag to CloudFormation parameters")
+                logger.debug(f"CloudFormation ImageTag parameter value: {image_uri}")
+                
+            except Exception as e:
+                logger.error(f"Failed to retrieve ImageTag from SSM: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                
+                # CRITICAL: Do not proceed without a valid ImageTag - this would cause "latest" to be used
+                if image_uri and 'latest' in image_uri.lower():
+                    logger.error("Refusing to create agent with 'latest' image tag!")
+                    logger.error("This would create an unstable deployment")
+                    raise ValueError("Cannot create agent with 'latest' image tag - please ensure CDK deployment completed successfully")
+                
+                logger.error("Refusing to create agent WITHOUT ImageTag parameter")
+                logger.error("ImageTag parameter is required - no default value in template")
+                logger.error("Agent creation aborted to prevent deployment failure!")
+                
+                # Re-raise the exception to prevent agent creation with wrong image
+                raise ValueError(f"ImageTag retrieval failed: {e}. Cannot create agent without proper image tag.")
+            
+            # Log final parameters before CloudFormation call
+            logger.info("Final CloudFormation parameters for create_stack")
+            logger.info(f"Stack Name: {new_stack_name}")
+            logger.info(f"Total parameters: {len(parameters)}")
+            for i, param in enumerate(parameters, 1):
+                logger.debug(f"  {i}. {param['ParameterKey']} = {param['ParameterValue'][:100]}...")  # Truncate long values
             
             # Create the new stack
             create_params = {
                 'StackName': new_stack_name,
-                'TemplateBody': json.dumps(modified_template),
+                'TemplateBody': json.dumps(template_body),
                 'Parameters': parameters,
                 'Capabilities': ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM'],
                 'Tags': [
                     {'Key': 'ManagedBy', 'Value': 'ConfigurationAPI'},
                     {'Key': 'AgentName', 'Value': new_agent_name},
-                    {'Key': 'SourceStack', 'Value': source_stack_name},
+                    {'Key': 'TemplateSource', 'Value': 'S3'},
                     {'Key': 'CreatedAt', 'Value': datetime.utcnow().isoformat()}
                 ]
             }
             
-            # Add original tags (excluding system tags)
-            if source_stack_info.get('tags'):
-                for tag in source_stack_info['tags']:
-                    if not tag['Key'].startswith('aws:'):
-                        create_params['Tags'].append(tag)
-            
+            logger.info("Calling CloudFormation CreateStack API...")
             response = self.cloudformation.create_stack(**create_params)
             
             stack_id = response['StackId']
-            logger.info(f"Successfully created stack '{new_stack_name}' with ID: {stack_id}")
+            logger.info("Stack creation initiated successfully")
+            logger.info(f"Stack Name: {new_stack_name}")
+            logger.info(f"Stack ID: {stack_id}")
+            logger.info(f"Agent Name: {new_agent_name}")
+            logger.info(f"Status: CREATE_IN_PROGRESS")
             
             return {
                 'stack_name': new_stack_name,
@@ -183,33 +249,48 @@ class DeploymentService:
             log_exception_safely(logger, e, "Error getting stack template")
             raise
     
-    def _modify_agent_name_parameter(self, template: Dict[str, Any], new_agent_name: str) -> Dict[str, Any]:
+    async def _get_template_from_s3(self, template_key: str = "GenericAgentTemplate.json") -> Dict[str, Any]:
         """
-        Modify the AgentName parameter default value in the template.
+        Get the latest CloudFormation template from S3.
+        
+        This fetches the template that was deployed by CDK to the template storage bucket.
+        This ensures stack updates pick up the latest CDK-generated template changes.
         
         Args:
-            template: Original CloudFormation template
-            new_agent_name: New agent name to set as default
+            template_key: S3 key for the template file
             
         Returns:
-            Modified CloudFormation template
+            CloudFormation template as a dictionary
+            
+        Raises:
+            ValueError: If template not found in S3
+            Exception: If unable to retrieve template
         """
         try:
-            # Create a copy of the template to avoid modifying the original
-            modified_template = json.loads(json.dumps(template))
+            logger.info(f"Retrieving template from S3: s3://{self.template_bucket_name}/{template_key}")
             
-            # Update the AgentName parameter default value
-            if 'Parameters' in modified_template and 'AgentName' in modified_template['Parameters']:
-                modified_template['Parameters']['AgentName']['Default'] = new_agent_name
-                logger.info(f"Updated AgentName parameter default to: {new_agent_name}")
+            response = self.s3.get_object(
+                Bucket=self.template_bucket_name,
+                Key=template_key
+            )
+            
+            template_body = response['Body'].read().decode('utf-8')
+            template = json.loads(template_body)
+            
+            logger.info(f"Successfully retrieved template from S3: {template_key}")
+            return template
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ['NoSuchKey', 'NoSuchBucket']:
+                raise ValueError(f"Template '{template_key}' not found in S3 bucket '{self.template_bucket_name}'")
             else:
-                logger.warning("AgentName parameter not found in template")
-            
-            return modified_template
-            
+                logger.error(f"S3 error retrieving template: {error_code}")
+                raise Exception(f"Failed to retrieve template from S3: {e.response['Error']['Message']}")
         except Exception as e:
-            log_exception_safely(logger, e, "Error modifying template")
-            raise RuntimeError("Failed to modify template")
+            log_exception_safely(logger, e, "Error getting template from S3")
+            raise
+    
     
     def _inject_model_environment_variables(
         self, 
@@ -354,14 +435,22 @@ class DeploymentService:
             for output in stack_info.get('outputs', []):
                 outputs[output['OutputKey']] = output['OutputValue']
             
+            # Convert datetime objects to ISO format strings for JSON serialization
+            creation_time = None
+            if stack_info.get('creation_time'):
+                creation_time = stack_info['creation_time'].isoformat() if hasattr(stack_info['creation_time'], 'isoformat') else str(stack_info['creation_time'])
+            
+            last_updated_time = None
+            if stack_info.get('last_updated_time'):
+                last_updated_time = stack_info['last_updated_time'].isoformat() if hasattr(stack_info['last_updated_time'], 'isoformat') else str(stack_info['last_updated_time'])
+            
             return {
                 'stack_name': stack_info['stack_name'],
                 'stack_id': stack_info['stack_id'],
                 'status': stack_info['status'],
-                'agent_name': agent_name,
-                'created_at': stack_info.get('creation_time'),
-                'updated_at': stack_info.get('last_updated_time'),
-                'outputs': outputs if outputs else None
+                'creation_time': creation_time,
+                'last_updated_time': last_updated_time,
+                'outputs': outputs if outputs else {}
             }
             
         except Exception as e:
@@ -451,14 +540,25 @@ class DeploymentService:
             log_exception_safely(logger, e, "Error listing agent stacks")
             raise
     
+    def get_stack_name_from_agent(self, agent_name: str) -> str:
+        """
+        Get CloudFormation stack name from agent name using consistent naming pattern.
+        
+        Standard pattern: {project_name}-agent-{agent_name}
+        
+        Args:
+            agent_name: Name of the agent
+            
+        Returns:
+            CloudFormation stack name
+        """
+        # Convert underscores to hyphens for stack naming consistency
+        stack_agent_name = agent_name.replace('_', '-')
+        return f"{self.project_name}-agent-{stack_agent_name}"
+    
     async def find_agent_stack_by_name(self, agent_name: str) -> Optional[Dict[str, Any]]:
         """
-        Find a CloudFormation stack for a specific agent using multiple naming patterns.
-        
-        This method checks multiple possible naming patterns:
-        1. ai-platform-agent-{agent-name} (actual pattern used by the system)
-        2. ai-platform-{agent-name}-stack (legacy pattern)
-        3. {project-name}-{agent-name}-stack (fallback pattern)
+        Find a CloudFormation stack for a specific agent using standard naming pattern.
         
         Args:
             agent_name: Name of the agent to find stack for
@@ -467,69 +567,271 @@ class DeploymentService:
             Stack information if found, None otherwise
         """
         try:
-            # Convert agent name to the expected stack format
-            stack_agent_name = agent_name.replace('_', '-')
+            # Use consistent naming pattern
+            expected_stack_name = self.get_stack_name_from_agent(agent_name)
             
-            # Try multiple naming patterns
-            possible_stack_names = [
-                f"ai-platform-agent-{stack_agent_name}",  # Actual pattern from AWS CLI output
-                f"{self.project_name}-agent-{stack_agent_name}",  # Project-based agent pattern
-                f"ai-platform-{stack_agent_name}-stack",  # Original expected pattern
-                f"{self.project_name}-{stack_agent_name}-stack"  # Project-based legacy pattern
-            ]
+            logger.info(f"Looking for agent stack: {expected_stack_name}")
             
-            logger.info(f"Looking for agent stack using multiple patterns: {possible_stack_names}")
-            
-            for expected_stack_name in possible_stack_names:
-                try:
-                    logger.info(f"Trying stack name pattern: {expected_stack_name}")
+            try:
+                # Get the stack directly using standard pattern
+                stack_info = await self._get_stack_info(expected_stack_name)
+                
+                # Verify this stack has the correct AgentName parameter
+                stack_agent_name_param = None
+                for param in stack_info.get('parameters', []):
+                    if param['ParameterKey'] == 'AgentName':
+                        stack_agent_name_param = param['ParameterValue']
+                        break
+                
+                if stack_agent_name_param == agent_name:
+                    logger.info(f"Found agent stack: {expected_stack_name} with AgentName={agent_name}")
                     
-                    # Try to get the stack directly using this pattern
-                    stack_info = await self._get_stack_info(expected_stack_name)
-                    
-                    # Verify this stack has the correct AgentName parameter
-                    stack_agent_name_param = None
-                    for param in stack_info.get('parameters', []):
-                        if param['ParameterKey'] == 'AgentName':
-                            stack_agent_name_param = param['ParameterValue']
+                    # Check if it's managed by our API
+                    managed_by_api = False
+                    for tag in stack_info.get('tags', []):
+                        if tag['Key'] == 'ManagedBy' and tag['Value'] == 'ConfigurationAPI':
+                            managed_by_api = True
                             break
                     
-                    if stack_agent_name_param == agent_name:
-                        logger.info(f"✅ Found exact match: {expected_stack_name} with AgentName={agent_name}")
-                        
-                        # Check if it's managed by our API
-                        managed_by_api = False
-                        for tag in stack_info.get('tags', []):
-                            if tag['Key'] == 'ManagedBy' and tag['Value'] == 'ConfigurationAPI':
-                                managed_by_api = True
-                                break
-                        
-                        return {
-                            'stack_name': stack_info['stack_name'],
-                            'stack_id': stack_info['stack_id'],
-                            'status': stack_info['status'],
-                            'agent_name': stack_agent_name_param,
-                            'managed_by_api': managed_by_api,
-                            'parameters': stack_info.get('parameters', []),
-                            'created_at': stack_info.get('creation_time'),
-                            'updated_at': stack_info.get('last_updated_time')
-                        }
-                    else:
-                        logger.warning(f"Stack {expected_stack_name} found but AgentName parameter mismatch: expected '{agent_name}', got '{stack_agent_name_param}'")
-                        continue
-                        
-                except ValueError:
-                    # Stack not found with this pattern, try next pattern
-                    logger.debug(f"No stack found with pattern: {expected_stack_name}")
-                    continue
-            
-            # If we get here, no stack was found with any pattern
-            logger.info(f"No stack found for agent '{agent_name}' using any naming pattern")
-            return None
+                    return {
+                        'stack_name': stack_info['stack_name'],
+                        'stack_id': stack_info['stack_id'],
+                        'status': stack_info['status'],
+                        'agent_name': stack_agent_name_param,
+                        'managed_by_api': managed_by_api,
+                        'parameters': stack_info.get('parameters', []),
+                        'created_at': stack_info.get('creation_time'),
+                        'updated_at': stack_info.get('last_updated_time')
+                    }
+                else:
+                    logger.warning(f"Stack {expected_stack_name} found but AgentName parameter mismatch: expected '{agent_name}', got '{stack_agent_name_param}'")
+                    return None
+                    
+            except ValueError:
+                # Stack not found with standard pattern
+                logger.info(f"No stack found for agent '{agent_name}' using pattern: {expected_stack_name}")
+                return None
                 
         except Exception as e:
             log_exception_safely(logger, e, f"Error finding agent stack for '{agent_name}'")
             return None
+    
+    async def update_agent_stack(
+        self,
+        agent_name: str,
+        parameters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Update an existing agent stack with new parameters or template changes.
+        
+        This method:
+        1. Finds the CloudFormation stack for the agent
+        2. Retrieves the current template
+        3. Updates the stack with new parameters (if provided)
+        
+        Args:
+            agent_name: Name of the agent whose stack to update
+            parameters: Optional dictionary of CloudFormation parameters to update
+            
+        Returns:
+            Dictionary containing update information
+            
+        Raises:
+            ValueError: If agent stack not found
+            Exception: If stack update fails
+        """
+        try:
+            logger.info(f"Updating agent stack for: {agent_name}")
+            
+            # Find the stack for this agent
+            stack_info = await self.find_agent_stack_by_name(agent_name)
+            
+            if not stack_info:
+                raise ValueError(f"No CloudFormation stack found for agent '{agent_name}'")
+            
+            stack_name = stack_info['stack_name']
+            logger.info(f"Found stack '{stack_name}' for agent '{agent_name}'")
+            
+            # Fetch the latest template from S3 to pick up any CDK template changes
+            # This ensures updates include latest infrastructure improvements
+            logger.info("Fetching latest template from S3 for stack update")
+            template_from_s3 = await self._get_template_from_s3("GenericAgentTemplate.json")
+            
+            # No template modification - parameters must be explicitly provided
+            # AgentName and ImageTag are required parameters with no defaults
+            logger.info("Using template as-is - no defaults to modify")
+            
+            # Prepare update parameters with unmodified template
+            update_params = {
+                'StackName': stack_name,
+                'TemplateBody': json.dumps(template_from_s3),
+                'Capabilities': ['CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM']
+            }
+            
+            # Build parameters list, preserving existing parameters and merging with new ones
+            # CRITICAL: AgentName must ALWAYS be explicitly set to prevent CloudFormation from using template default
+            
+            # Get existing parameters from stack
+            existing_params = {
+                param['ParameterKey']: param['ParameterValue']
+                for param in stack_info.get('parameters', [])
+            }
+            
+            logger.info(f"Existing parameters from stack: {existing_params}")
+            
+            # If new parameters provided, merge them with existing ones
+            if parameters:
+                existing_params.update(parameters)
+                logger.info(f"Merged {len(parameters)} new parameters with existing parameters")
+            
+            # CRITICAL: Always ensure AgentName is set to the correct agent name
+            # This is the most important parameter and must never revert to template default
+            existing_params['AgentName'] = agent_name
+            logger.info(f"Explicitly set AgentName parameter to: {agent_name}")
+            
+            # CRITICAL: Retrieve and set ImageTag from SSM to ensure ECS updates
+            # The existing parameter may contain a CDK token like ${Token[TOKEN.262]}
+            # which must be replaced with the actual full image URI with SHA256 tag from SSM
+            logger.debug(f"Current ImageTag parameter value before SSM retrieval: {existing_params.get('ImageTag', 'NOT SET')}")
+            try:
+                logger.info("Retrieving image URI from SSM for ImageTag parameter...")
+                image_uri = self._get_image_uri_from_ssm()
+                logger.debug(f"Full image URI from SSM: {image_uri}")
+                
+                # IMPORTANT: Pass the FULL image URI, not just the tag
+                # The CloudFormation template expects the complete URI with repository and SHA256 tag
+                logger.debug(f"Replacing ImageTag parameter: '{existing_params.get('ImageTag')}' -> '{image_uri}'")
+                existing_params['ImageTag'] = image_uri
+                logger.info(f"Successfully updated ImageTag parameter from SSM: {image_uri}")
+            except Exception as e:
+                logger.error(f"Failed to retrieve ImageTag from SSM: {e}")
+                logger.warning(f"Proceeding with existing ImageTag value: {existing_params.get('ImageTag', 'NOT SET')}")
+                logger.warning("ECS may not update if ImageTag hasn't changed")
+            
+            # Build CloudFormation parameter list from merged parameters
+            # Put AgentName FIRST to emphasize its importance
+            cfn_parameters = [
+                {
+                    'ParameterKey': 'AgentName',
+                    'ParameterValue': agent_name
+                }
+            ]
+            
+            # Add all other parameters
+            for key, value in existing_params.items():
+                if key != 'AgentName':  # Skip AgentName since we already added it first
+                    cfn_parameters.append({
+                        'ParameterKey': key,
+                        'ParameterValue': str(value)
+                    })
+            
+            update_params['Parameters'] = cfn_parameters
+            logger.info(f"Final parameters for CloudFormation update (AgentName={agent_name} is first): {[p['ParameterKey'] for p in cfn_parameters]}")
+            
+            # Add update tags
+            existing_tags = stack_info.get('tags', [])
+            update_tags = [tag for tag in existing_tags if not tag['Key'].startswith('aws:')]
+            update_tags.append({
+                'Key': 'LastUpdatedBy',
+                'Value': 'ConfigurationAPI'
+            })
+            update_tags.append({
+                'Key': 'LastUpdatedAt',
+                'Value': datetime.utcnow().isoformat()
+            })
+            update_params['Tags'] = update_tags
+            
+            # Execute stack update
+            # Note: EnableTerminationProtection is only valid for create_stack, not update_stack
+            try:
+                response = self.cloudformation.update_stack(**update_params)
+                stack_id = response['StackId']
+                
+                logger.info(f"Successfully initiated stack update for '{stack_name}' (with ForceNewDeployment)")
+                
+                return {
+                    'stack_name': stack_name,
+                    'stack_id': stack_id,
+                    'status': 'UPDATE_IN_PROGRESS',
+                    'agent_name': agent_name,
+                    'message': f'Stack update initiated for agent {agent_name} - ECS service will force new deployment'
+                }
+                
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                error_message = e.response['Error']['Message']
+                
+                # Handle "No updates are to be performed" case gracefully
+                if error_code == 'ValidationError' and 'No updates are to be performed' in error_message:
+                    logger.info(f"No updates needed for stack '{stack_name}'")
+                    return {
+                        'stack_name': stack_name,
+                        'stack_id': stack_info['stack_id'],
+                        'status': stack_info['status'],
+                        'agent_name': agent_name,
+                        'message': 'Stack is already up to date - no changes needed'
+                    }
+                else:
+                    logger.error(f"CloudFormation error: {error_code} - {error_message}")
+                    raise Exception(f"Failed to update stack: {error_message}")
+            
+        except ValueError:
+            # Re-raise ValueError for agent not found
+            raise
+        except Exception as e:
+            log_exception_safely(logger, e, f"Error updating agent stack for '{agent_name}'")
+            raise
+    
+    def _get_image_uri_from_ssm(self) -> str:
+        """
+        Retrieve the agent image URI from SSM Parameter Store.
+        
+        This retrieves the SHA256-tagged image URI that was stored during
+        the CDK deployment, ensuring ECS tasks always pull the correct image version.
+        
+        Returns:
+            Image URI with SHA256 tag (e.g., "123456789.dkr.ecr.us-east-1.amazonaws.com/repo:sha256tag")
+            
+        Raises:
+            Exception: If parameter not found or retrieval fails
+        """
+        try:
+            # Get SSM client
+            ssm = boto3.client('ssm', region_name=self.region)
+            
+            # Parameter name where CDK stores the image URI
+            # This matches the actual parameter created by template_storage stack:
+            # ssm.StringParameter(parameter_name=f"/{project_name}/agent/image-uri", ...)
+            parameter_name = f"/{self.project_name}/agent/image-uri"
+            
+            logger.debug(f"Fetching SSM parameter: {parameter_name}")
+            response = ssm.get_parameter(Name=parameter_name)
+            image_uri = response['Parameter']['Value']
+            
+            logger.info(f"Successfully retrieved image URI from SSM: {image_uri}")
+            
+            # Log the expected tag extraction for debugging
+            if ':' in image_uri:
+                expected_tag = image_uri.split(':')[-1]
+                logger.debug(f"Expected tag after extraction: {expected_tag}")
+            else:
+                logger.warning("Image URI doesn't contain ':' separator - will default to 'latest'")
+            
+            return image_uri
+            
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code == 'ParameterNotFound':
+                logger.error(f"SSM parameter not found: {parameter_name}")
+                logger.error("Ensure CDK deployment completed successfully and created this parameter")
+                logger.error(f"Check if parameter exists with: aws ssm get-parameter --name {parameter_name}")
+            else:
+                logger.error(f"AWS error retrieving SSM parameter: {error_code}")
+            raise Exception(f"Failed to retrieve image URI from SSM: {e.response['Error']['Message']}")
+        except Exception as e:
+            logger.error("Unexpected error retrieving image URI from SSM")
+            log_exception_safely(logger, e, "Error retrieving image URI from SSM")
+            raise
     
     async def delete_stack(self, stack_name: str) -> Dict[str, Any]:
         """

@@ -588,41 +588,103 @@ const AgentWizard = ({
         region_name: config.region_name || 'us-east-1'
       };
       
-      // Map model configuration
-      if (config.model_id !== undefined) {
-        transformedData['models_bedrock_model_id'] = config.model_id;
-      }
-      if (config.embedding_model_id !== undefined) {
-        transformedData['models_bedrock_embedding_model_id'] = config.embedding_model_id;
-      }
-      if (config.temperature !== undefined) {
-        transformedData['models_bedrock_temperature'] = config.temperature;
-      }
-      if (config.top_p !== undefined) {
-        transformedData['models_bedrock_top_p'] = config.top_p;
-      }
-      
-      // Handle model_ids array for multi-select dropdown - Issue #2
-      if (config.model_ids && Array.isArray(config.model_ids)) {
-        transformedData['models_bedrock_model_ids'] = config.model_ids;
-      }
-      
-      transformedData['models_enabled'] = true;
-      transformedData['models_provider'] = 'bedrock';
-      
-      // Handle other components
-      ['tools', 'knowledge_base', 'memory', 'observability', 'guardrail'].forEach(componentType => {
+      // Handle ALL components with consistent provider_details pattern
+      ['models', 'tools', 'knowledge_base', 'memory', 'observability', 'guardrail'].forEach(componentType => {
         const enabledValue = config[componentType];
-        
+
+        // Set enabled status
         if (componentType === 'tools' && Array.isArray(enabledValue)) {
           transformedData[`${componentType}_enabled`] = enabledValue.length > 0;
+        } else if (componentType === 'models') {
+          transformedData['models_enabled'] = true;
         } else {
-          transformedData[`${componentType}_enabled`] = 
+          transformedData[`${componentType}_enabled`] =
             enabledValue === 'True' || enabledValue === true || enabledValue === 'enabled';
         }
-        
+
+        // Set provider name
         if (config[`${componentType}_provider`]) {
           transformedData[`${componentType}_provider`] = config[`${componentType}_provider`];
+        } else if (componentType === 'models') {
+          transformedData['models_provider'] = 'bedrock';
+        }
+
+        // Special handling for tools - uses direct 'tools' array instead of 'tools_provider_details'
+        if (componentType === 'tools' && Array.isArray(config.tools) && config.tools.length > 0) {
+          // Infer provider from tool type - default to 'builtin' for standard tools
+          const inferredProvider = 'builtin';
+          transformedData[`${componentType}_provider`] = inferredProvider;
+          
+          config.tools.forEach(toolConfig => {
+            const toolName = toolConfig.name;
+            const toolConfigValues = toolConfig.config || {};
+            
+            // Map each tool config value to form field
+            Object.entries(toolConfigValues).forEach(([configKey, configValue]) => {
+              const formFieldKey = `tools_${inferredProvider}_${toolName}_${configKey}`;
+              transformedData[formFieldKey] = configValue;
+            });
+            
+            // Mark the tool as enabled
+            transformedData[`tools_${inferredProvider}_${toolName}_enabled`] = true;
+          });
+        }
+        // Standard provider_details pattern for other components
+        else {
+          const providerDetailsKey = componentType === 'knowledge_base' ? 
+            `${componentType}_details` : 
+            `${componentType}_provider_details`;
+          
+          const providerDetails = config[providerDetailsKey];
+          
+          if (providerDetails && Array.isArray(providerDetails)) {
+            // Standard provider_details format
+            providerDetails.forEach(providerConfig => {
+              const providerName = providerConfig.name;
+              const providerConfigValues = providerConfig.config || {};
+              
+              // Map each config value to form field
+              Object.entries(providerConfigValues).forEach(([configKey, configValue]) => {
+                const formFieldKey = `${componentType}_${providerName}_${configKey}`;
+                transformedData[formFieldKey] = configValue;
+              });
+            });
+          } else {
+            // FALLBACK: Handle flat configuration format for ALL components
+            // This handles cases where SSM stores config without provider_details array structure
+            const providerName = config[`${componentType}_provider`] || 
+                                 (componentType === 'models' ? 'bedrock' : 'default');
+            
+            // Extract all fields that might be stored at the root level for this component
+            // Look for patterns like: model_id, embedding_model_id, api_key, endpoint, etc.
+            Object.entries(config).forEach(([key, value]) => {
+              // Skip the provider_details keys themselves
+              if (key === providerDetailsKey || key === `${componentType}_provider` || key === componentType) {
+                return;
+              }
+              
+              // Check if this key might belong to this component
+              // Common patterns: model_id, judge_model_id, embedding_model_id (for models)
+              //                  api_key, endpoint, url (for observability, memory, etc.)
+              const componentSpecificPatterns = {
+                models: ['model_id', 'judge_model_id', 'embedding_model_id', 'temperature', 'top_p', 'model_ids'],
+                observability: ['api_key', 'endpoint', 'project_id', 'environment', 'service_name', 'url', 'token'],
+                memory: ['endpoint', 'index_name', 'api_key', 'url', 'collection_name'],
+                knowledge_base: ['knowledge_base_id', 'index_name', 'endpoint', 'data_source'],
+                guardrail: ['guardrail_id', 'guardrail_version', 'threshold']
+              };
+              
+              const patterns = componentSpecificPatterns[componentType] || [];
+              const matchesPattern = patterns.some(pattern => 
+                key.toLowerCase().includes(pattern.toLowerCase())
+              );
+              
+              if (matchesPattern && value !== undefined) {
+                const formFieldKey = `${componentType}_${providerName}_${key}`;
+                transformedData[formFieldKey] = value;
+              }
+            });
+          }
         }
       });
       
@@ -1150,7 +1212,8 @@ const AgentWizard = ({
       !['agent', 'models', 'tools'].includes(component.type)
     );
     
-    validComponents.forEach(componentType => {
+    validComponents.forEach(component => {
+      const componentType = component.type;
       const isEnabled = agentData[`${componentType}_enabled`];
       const selectedProvider = agentData[`${componentType}_provider`];
       
@@ -1168,22 +1231,28 @@ const AgentWizard = ({
       }
       
       if (isEnabled && selectedProvider) {
-        // Build provider details array - only include selected provider with values
+        // Build provider details array dynamically - ALWAYS include to match handleCreateAgent
         const providerDetails = [];
         
         // Get all available providers for this component
         componentProviders.forEach(provider => {
           const providerConfig = extractProviderConfig(componentType, provider.name);
           
-          // Only include configuration if this is the selected provider AND has values
-          if (provider.name === selectedProvider) {
-            const hasValues = Object.values(providerConfig).some(value => value && value !== '');
-            if (hasValues) {
-              providerDetails.push({
-                name: provider.name,
-                config: providerConfig
-              });
-            }
+          // CRITICAL FIX: Always include provider config if it's the selected provider OR has values
+          // This matches handleCreateAgent behavior and ensures data persistence
+          const hasValues = Object.values(providerConfig).some(value => value && value !== '');
+          
+          if (provider.name === selectedProvider || hasValues) {
+            providerDetails.push({
+              name: provider.name,
+              config: providerConfig
+            });
+          } else {
+            // Include empty config for non-selected providers to maintain structure
+            providerDetails.push({
+              name: provider.name,
+              config: {}
+            });
           }
         });
         

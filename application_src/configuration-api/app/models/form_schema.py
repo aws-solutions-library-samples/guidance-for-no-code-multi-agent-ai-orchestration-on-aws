@@ -723,24 +723,12 @@ class FormSchemaRegistry:
                 description="Open-source LLM observability and analytics platform",
                 fields=[
                     FormField(
-                        name="enabled",
-                        type=FieldType.CHECKBOX,
-                        label="Enable Observability Integration",
-                        help_text="Enable Langfuse observability and analytics",
-                        required=False,
-                        default_value=False
-                    ),
-                    FormField(
                         name="public_key",
                         type=FieldType.TEXT,
                         label="Langfuse Public Key",
                         placeholder="Enter Langfuse public key",
                         help_text="Your Langfuse project public key",
-                        required=True,
-                        conditional={
-                            "field": "enabled",
-                            "value": True
-                        }
+                        required=True
                     ),
                     FormField(
                         name="secret_key",
@@ -749,11 +737,7 @@ class FormSchemaRegistry:
                         placeholder="Enter Langfuse secret key",
                         help_text="Your Langfuse project secret key",
                         required=True,
-                        secure=True,
-                        conditional={
-                            "field": "enabled",
-                            "value": True
-                        }
+                        secure=True
                     ),
                     FormField(
                         name="host",
@@ -762,11 +746,7 @@ class FormSchemaRegistry:
                         placeholder="https://cloud.langfuse.com",
                         help_text="Langfuse host URL (defaults to cloud.langfuse.com)",
                         required=False,
-                        default_value="https://cloud.langfuse.com",
-                        conditional={
-                            "field": "enabled",
-                            "value": True
-                        }
+                        default_value="https://cloud.langfuse.com"
                     )
                 ]
             ),
@@ -777,24 +757,12 @@ class FormSchemaRegistry:
                 description="Full-stack observability platform",
                 fields=[
                     FormField(
-                        name="enabled",
-                        type=FieldType.CHECKBOX,
-                        label="Enable Observability Integration",
-                        help_text="Enable Dynatrace observability and monitoring",
-                        required=False,
-                        default_value=False
-                    ),
-                    FormField(
                         name="environment_url",
                         type=FieldType.URL,
                         label="Dynatrace Environment URL",
                         placeholder="https://your-environment.live.dynatrace.com",
                         help_text="Your Dynatrace environment URL",
-                        required=True,
-                        conditional={
-                            "field": "enabled",
-                            "value": True
-                        }
+                        required=True
                     ),
                     FormField(
                         name="api_token",
@@ -803,11 +771,50 @@ class FormSchemaRegistry:
                         placeholder="Enter Dynatrace API token",
                         help_text="API token with appropriate permissions",
                         required=True,
-                        secure=True,
-                        conditional={
-                            "field": "enabled",
-                            "value": True
-                        }
+                        secure=True
+                    )
+                ]
+            ),
+            
+            "elastic": ProviderFormSchema(
+                provider_name="elastic",
+                provider_label="Elastic Observability",
+                description="Elastic Cloud Managed OTLP Endpoint for OpenTelemetry-based observability",
+                fields=[
+                    FormField(
+                        name="otlp_endpoint",
+                        type=FieldType.URL,
+                        label="Elastic OTLP Endpoint",
+                        placeholder="https://your-cluster.elastic-cloud.com:443",
+                        help_text="Your Elastic Cloud Managed OTLP endpoint URL (found in Elastic Cloud console)",
+                        required=True
+                    ),
+                    FormField(
+                        name="api_key",
+                        type=FieldType.PASSWORD,
+                        label="Elastic API Key",
+                        placeholder="Enter Elastic API key",
+                        help_text="API key for authentication with Elastic Cloud",
+                        required=True,
+                        secure=True
+                    ),
+                    FormField(
+                        name="dataset",
+                        type=FieldType.TEXT,
+                        label="Data Stream Dataset (Optional)",
+                        placeholder="generic.otel",
+                        help_text="Dataset name for routing logs to dedicated data streams (default: generic.otel)",
+                        required=False,
+                        default_value="generic.otel"
+                    ),
+                    FormField(
+                        name="namespace",
+                        type=FieldType.TEXT,
+                        label="Data Stream Namespace (Optional)",
+                        placeholder="default",
+                        help_text="Namespace for data stream organization (default: default)",
+                        required=False,
+                        default_value="default"
                     )
                 ]
             )
