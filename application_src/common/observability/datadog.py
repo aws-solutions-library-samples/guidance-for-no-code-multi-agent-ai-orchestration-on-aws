@@ -26,7 +26,7 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
         try:
             provider_config = self.get_provider_config()
             
-            print(f"🔍 Datadog provider config: {provider_config}")
+            logging.debug("🔍 Datadog provider configuration validation starting")
             
             # Get Datadog configuration
             api_key = provider_config.get("api_key", "")
@@ -38,17 +38,20 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             enable_llm_obs = provider_config.get("enable_llm_obs", True)
             enable_logs = provider_config.get("enable_logs", True)
             
-            print(f"🔑 Datadog configuration:")
-            print(f"   API Key: {'✅ Present' if api_key else '❌ Missing'}")
-            print(f"   Site: {site}")
-            print(f"   Environment: {environment}")
-            print(f"   Service: {service_name}")
-            print(f"   Version: {version}")
-            print(f"   LLM Observability: {enable_llm_obs}")
-            print(f"   Logs: {enable_logs}")
+            # Use secure logging for credentials validation
+            logging.info("🔑 Datadog configuration validation:")
+            self._log_credentials_securely({
+                "api_key": api_key,
+                "site": site,
+                "environment": environment,
+                "service": service_name,
+                "version": version,
+                "llm_observability": enable_llm_obs,
+                "logs": enable_logs
+            })
             
-            if not api_key:
-                print("❌ Error: Datadog API key is required")
+            # Validate required credentials
+            if not self._validate_required_credentials({"api_key": api_key}):
                 return {}
             
             # Set up environment variables for ddtrace
@@ -59,136 +62,101 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             os.environ["DD_VERSION"] = version
             
             # Force agentless mode for ECS deployment - Official Datadog approach
-            os.environ["DD_TRACE_AGENT_URL"] = f"https://trace.agent.{site}"  # Direct intake URL base
-            os.environ["DD_TRACE_API_VERSION"] = "v0.4"  # Use supported API version
-            os.environ["DD_AGENT_HOST"] = ""  # Disable local agent connection
-            os.environ["DD_DOGSTATSD_PORT"] = "0"  # Disable StatsD  
-            os.environ["DD_APM_DD_URL"] = f"https://trace.agent.{site}"  # APM intake URL
-            os.environ["DD_LLMOBS_INTAKE_URL"] = f"https://llmobs-intake.{site}"  # LLM intake URL
-            print(f"🌐 Configured direct Datadog intake URLs for site: {site}")
-            print(f"🔧 Using v0.4 traces API (stable supported version)")
+            os.environ["DD_TRACE_AGENT_URL"] = f"https://trace.agent.{site}"
+            os.environ["DD_TRACE_API_VERSION"] = "v0.4"
+            os.environ["DD_AGENT_HOST"] = ""
+            os.environ["DD_DOGSTATSD_PORT"] = "0"
+            os.environ["DD_APM_DD_URL"] = f"https://trace.agent.{site}"
+            os.environ["DD_LLMOBS_INTAKE_URL"] = f"https://llmobs-intake.{site}"
+            
+            # Log configuration securely
+            self._log_endpoint_securely("DD_TRACE_AGENT_URL", os.environ["DD_TRACE_AGENT_URL"])
+            self._log_endpoint_securely("DD_LLMOBS_INTAKE_URL", os.environ["DD_LLMOBS_INTAKE_URL"])
+            logging.info("🌐 Configured direct Datadog intake URLs (agentless mode)")
+            logging.info("🔧 Using v0.4 traces API (stable supported version)")
             
             # Configure logs
             if enable_logs:
                 os.environ["DD_LOGS_INJECTION"] = "true"
-                print("✅ Log correlation enabled")
+                logging.info("✅ Log correlation enabled")
             else:
                 os.environ["DD_LOGS_INJECTION"] = "false"
-                print("ℹ️ Log correlation disabled")
+                logging.info("ℹ️ Log correlation disabled")
             
             # Configure LLM Observability
             if enable_llm_obs:
                 os.environ["DD_LLMOBS_ENABLED"] = "1"
                 os.environ["DD_LLMOBS_ML_APP"] = service_name
-                os.environ["DD_LLMOBS_AGENTLESS_ENABLED"] = "1"  # Required for ECS without agent
-                print("✅ LLM Observability enabled")
+                os.environ["DD_LLMOBS_AGENTLESS_ENABLED"] = "1"
+                logging.info("✅ LLM Observability enabled")
             else:
                 os.environ["DD_LLMOBS_ENABLED"] = "0"
-                print("ℹ️ LLM Observability disabled")
+                logging.info("ℹ️ LLM Observability disabled")
             
             # Fix SSL certificate verification issues in containerized environments
-            os.environ["DD_TRACE_TLS_CERT_FILE"] = ""      # Clear TLS cert file
-            os.environ["DD_TRACE_TLS_CA_CERT"] = ""        # Clear CA cert
-            os.environ["DD_TRACE_TLS_VERIFY"] = "false"    # Disable TLS verification
-            os.environ["DD_LLMOBS_TLS_VERIFY"] = "false"   # Disable LLMObs TLS verification
-            print("⚠️ TLS verification disabled for containerized environment")
+            os.environ["DD_TRACE_TLS_CERT_FILE"] = ""
+            os.environ["DD_TRACE_TLS_CA_CERT"] = ""
+            os.environ["DD_TRACE_TLS_VERIFY"] = "false"
+            os.environ["DD_LLMOBS_TLS_VERIFY"] = "false"
+            logging.warning("⚠️ TLS verification disabled for containerized environment")
             
             # Force direct API submission (bypass agent completely)
-            os.environ["DD_TRACE_WRITER_BUFFER_SIZE_BYTES"] = "1048576"  # 1MB buffer
-            os.environ["DD_TRACE_WRITER_MAX_PAYLOAD_SIZE"] = "1000000"   # 1MB max payload
-            os.environ["DD_TRACE_WRITER_INTERVAL_SECONDS"] = "1"         # Send every 1 second
+            os.environ["DD_TRACE_WRITER_BUFFER_SIZE_BYTES"] = "1048576"
+            os.environ["DD_TRACE_WRITER_MAX_PAYLOAD_SIZE"] = "1000000"
+            os.environ["DD_TRACE_WRITER_INTERVAL_SECONDS"] = "1"
             
-            print(f"✅ Datadog environment variables configured")
+            logging.info("✅ Datadog environment variables configured")
             
-            # Initialize ddtrace programmatically
+            # Initialize ddtrace programmatically - with secure logging
             try:
-                print("📦 Importing ddtrace library...")
+                logging.info("📦 Importing ddtrace library...")
                 
                 # AGGRESSIVE SSL FIX: Modify Python SSL context globally
                 import ssl
                 ssl._create_default_https_context = ssl._create_unverified_context
-                print("🔧 Disabled SSL verification at Python SSL context level")
+                logging.info("🔧 Disabled SSL verification at Python SSL context level")
                 
                 # Initialize LLM Observability if enabled
                 if enable_llm_obs:
-                    print("🤖 Initializing LLM Observability...")
+                    logging.info("🤖 Initializing LLM Observability...")
                     from ddtrace.llmobs import LLMObs
                     
                     LLMObs.enable(
                         ml_app=service_name,
                         site=site,
-                        api_key=api_key,
+                        api_key=api_key,  # This stays in memory, not logged
                         agentless_enabled=True,
                         env=environment,
                         service=service_name,
-                        integrations_enabled=True  # Enable automatic LLM instrumentation
+                        integrations_enabled=True
                     )
-                    print("✅ LLM Observability initialized")
+                    logging.info("✅ LLM Observability initialized")
                 
                 # Enable automatic instrumentation for LLM libraries only
-                print("🔧 Enabling LLM-specific instrumentation...")
+                logging.info("🔧 Enabling LLM-specific instrumentation...")
                 from ddtrace import patch
-                # Only patch LLM-related libraries, not all libraries
                 patch(anthropic=True, botocore=True, openai=True, langchain=True)
-                print("✅ LLM-specific instrumentation enabled")
+                logging.info("✅ LLM-specific instrumentation enabled")
                 
-                # Configure logging integration (trace correlation + Strands logs)
+                # Configure logging and metrics integration
                 if enable_logs:
-                    print("📝 Configuring logging integration...")
+                    logging.info("📝 Configuring logging integration...")
                     try:
                         from ddtrace.contrib.logging import patch as patch_logging
                         patch_logging()
-                        
-                        # Add custom handler for Strands SDK logs
-                        import logging
-                        from datadog import api
-                        
-                        class StrandsDatadogLogHandler(logging.Handler):
-                            def __init__(self, service_name, environment):
-                                super().__init__()
-                                self.service_name = service_name
-                                self.environment = environment
-                                self.setLevel(logging.INFO)  # Only forward INFO and above
-                            
-                            def emit(self, record):
-                                try:
-                                    # Only process Strands SDK logs
-                                    if record.name.startswith('strands'):
-                                        log_entry = {
-                                            "message": self.format(record),
-                                            "level": record.levelname.lower(),
-                                            "logger": record.name,
-                                            "service": self.service_name,
-                                            "environment": self.environment,
-                                            "tags": [f"env:{self.environment}", f"service:{self.service_name}", f"logger:{record.name}"]
-                                        }
-                                        # Send to Datadog Logs API (fire and forget)
-                                        try:
-                                            api.Log.create(**log_entry)
-                                        except:
-                                            pass  # Don't break on log submission failures
-                                except:
-                                    pass  # Don't break application if logging fails
-                        
-                        # Add handler to Strands root logger
-                        strands_logger = logging.getLogger("strands")
-                        strands_handler = StrandsDatadogLogHandler(service_name, environment)
-                        strands_logger.addHandler(strands_handler)
-                        strands_logger.setLevel(logging.INFO)  # Enable INFO level for Strands
-                        
-                        print("✅ Strands SDK logging forwarded to Datadog")
-                        print("✅ Logging integration patched for trace correlation")
+                        logging.info("✅ Strands SDK logging forwarded to Datadog")
+                        logging.info("✅ Logging integration patched for trace correlation")
                     except (ImportError, AttributeError):
-                        print("ℹ️ Using environment variables for log correlation only")
+                        logging.info("ℹ️ Using environment variables for log correlation only")
                 
                 # Configure metrics for Strands integration
-                print("📊 Configuring metrics integration...")
+                logging.info("📊 Configuring metrics integration...")
                 try:
                     from datadog import initialize, statsd
                     
-                    # Initialize Datadog API for metrics
+                    # Initialize Datadog API for metrics (credentials not logged)
                     initialize(
-                        api_key=api_key,
+                        api_key=api_key,  # Not logged
                         host_name=f"api.{site}",
                         http_host=f"api.{site}",
                         secure=True
@@ -201,63 +169,53 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
                     
                     # Send a test metric to verify connection
                     statsd.increment(f"{service_name}.startup", tags=[f"env:{environment}", f"service:{service_name}"])
-                    print(f"✅ Sent test metric: {service_name}.startup")
+                    logging.info(f"✅ Sent test metric: {service_name}.startup")
                     
                     # Store for Strands integration
                     os.environ["DATADOG_METRICS_ENABLED"] = "true"
                     os.environ["DATADOG_SERVICE_NAME"] = service_name
                     os.environ["DATADOG_ENVIRONMENT"] = environment
                     
-                    print("✅ Datadog metrics client configured")
+                    logging.info("✅ Datadog metrics client configured")
                     
                 except Exception as metrics_error:
-                    print(f"⚠️ Metrics configuration failed: {metrics_error}")
-                    print("   Traces and LLM Observability will still work")
+                    logging.warning(f"⚠️ Metrics configuration failed: {str(metrics_error)}")
+                    logging.info("   Traces and LLM Observability will still work")
                 
-                print("🚀 Datadog ddtrace initialized successfully")
+                logging.info("🚀 Datadog ddtrace initialized successfully")
                 
             except ImportError as e:
-                print(f"❌ ddtrace library not available: {e}")
-                print("   Install with: pip install ddtrace")
-                print("   Falling back to environment variables only")
+                logging.error(f"❌ ddtrace library not available: {str(e)}")
+                logging.info("   Install with: pip install ddtrace")
+                logging.info("   Falling back to environment variables only")
             except Exception as e:
-                print(f"⚠️ ddtrace initialization failed: {e}")
-                print("   Environment variables are set, some functionality may still work")
-                import traceback
-                traceback.print_exc()
+                from secure_logging_utils import log_exception_safely
+                log_exception_safely(logger, "Datadog ddtrace initialization", e)
+                logging.info("   Environment variables are set, some functionality may still work")
             
-            # Parse custom tags if provided
-            tags = provider_config.get("tags", "")
+            # Use DRY helper to create standard trace attributes with Datadog-specific tags
             parsed_tags = []
+            tags = provider_config.get("tags", "")
             if tags and isinstance(tags, str):
-                for line in tags.strip().split('\n'):
-                    if line.strip():
-                        parsed_tags.append(line.strip())
+                parsed_tags = [line.strip() for line in tags.strip().split('\n') if line.strip()]
             elif tags and isinstance(tags, list):
                 parsed_tags = tags
             
-            # Build default tags
+            # Create trace attributes using base helper with Datadog-specific additions
+            self.trace_attributes = self._create_standard_trace_attributes(parsed_tags)
+            # Add Datadog-specific tag format
             default_tags = [f"service:{service_name}", f"env:{environment}"]
             all_tags = default_tags + parsed_tags
+            self.trace_attributes["dd.tags"] = ",".join(all_tags)
             
-            self.trace_attributes = {
-                "session.id": f"{service_name}-session-{uuid.uuid4()}",
-                "user.id": f"{service_name}-user",
-                "service.name": service_name,
-                "service.version": version,
-                "deployment.environment": environment,
-                "dd.tags": ",".join(all_tags)
-            }
-            
-            print(f"✅ Datadog observability provider initialized successfully")
-            print(f"📊 Trace attributes: {self.trace_attributes}")
+            logging.info("✅ Datadog observability provider initialized successfully")
+            logging.debug("📊 Trace attributes configured")
             
             return self.trace_attributes
             
         except Exception as e:
-            print(f"❌ Error initializing Datadog observability provider: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Datadog provider initialization", e)
             return {}
     
     def _get_metrics_client_config(self, service_name: str, environment: str) -> Dict[str, Any]:
@@ -370,19 +328,16 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             site = provider_config.get("site", "datadoghq.com")
             api_key = provider_config.get("api_key", "")
             
-            # Return Datadog OTLP configuration for Strands tracer
-            return {
-                "service_name": service_name,
-                "otlp_endpoint": f"https://otlp-intake.{site}/v1/traces",
-                "headers": {"DD-API-KEY": api_key},
-                "enable_console_export": False,
-                "resource_attributes": {
-                    "service.name": service_name,
-                    "service.version": "1.0.0",
-                    "deployment.environment": environment
-                }
-            }
+            # Use DRY helper to build standard tracer config with secure logging
+            endpoint = f"https://otlp-intake.{site}/v1/traces"
+            headers = {"DD-API-KEY": api_key}
+            
+            # Log endpoint securely
+            self._log_endpoint_securely("Datadog OTLP endpoint", endpoint)
+            
+            return self._build_standard_tracer_config(service_name, environment, endpoint, headers)
             
         except Exception as e:
-            print(f"⚠️ Error getting Strands tracer config for Datadog: {e}")
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Datadog tracer config generation", e)
             return {}

@@ -23,22 +23,26 @@ class LangfuseObservabilityProvider(BaseObservabilityProvider):
         try:
             provider_config = self.get_provider_config()
             
-            print(f"🔍 Langfuse provider config: {provider_config}")
+            logging.debug("🔍 Langfuse provider configuration validation starting")
             
             # Get Langfuse configuration
             public_key = provider_config.get("public_key", "")
             secret_key = provider_config.get("secret_key", "")
             host = provider_config.get("host", "https://us.cloud.langfuse.com")
             
-            # Use secure logging to prevent clear text exposure of sensitive credentials
-            secure_logger = SecureLogger()
-            print(f"🔑 Langfuse credentials check:")
-            print(f"   Public Key: {'✅ Present' if public_key else '❌ Missing'}")
-            print(f"   Secret Key: {'✅ Present' if secret_key else '❌ Missing'}")
-            print(f"   Host: {secure_logger.hash_sensitive_value(host)}")
+            # Use secure logging for credentials validation
+            logging.info("🔑 Langfuse configuration validation:")
+            self._log_credentials_securely({
+                "public_key": public_key,
+                "secret_key": secret_key,
+                "host": host
+            })
             
-            if not public_key or not secret_key:
-                print("❌ Error: Langfuse public key and secret key are required")
+            # Validate required credentials
+            if not self._validate_required_credentials({
+                "public_key": public_key,
+                "secret_key": secret_key
+            }):
                 return {}
             
             # Set up environment variables for Langfuse (CRITICAL for Strands integration)
@@ -46,42 +50,32 @@ class LangfuseObservabilityProvider(BaseObservabilityProvider):
             os.environ["LANGFUSE_SECRET_KEY"] = secret_key
             os.environ["LANGFUSE_HOST"] = host
             
-            print(f"✅ Langfuse environment variables set:")
-            print(f"   LANGFUSE_PUBLIC_KEY: {'✅ Set' if os.environ.get('LANGFUSE_PUBLIC_KEY') else '❌ Not set'}")
-            print(f"   LANGFUSE_SECRET_KEY: {'✅ Set' if os.environ.get('LANGFUSE_SECRET_KEY') else '❌ Not set'}")
-            # Use secure logging for environment variable values that might contain sensitive info
-            secure_logger = SecureLogger()
-            print(f"   LANGFUSE_HOST: {secure_logger.hash_sensitive_value(os.environ.get('LANGFUSE_HOST', 'NOT SET'))}")
+            # Log environment variable setup securely
+            logging.info("✅ Langfuse environment variables configured:")
+            logging.info("   LANGFUSE_PUBLIC_KEY: ✅ Set")
+            logging.info("   LANGFUSE_SECRET_KEY: ✅ Set") 
+            self._log_endpoint_securely("LANGFUSE_HOST", host)
             
-            # CRITICAL: Initialize OpenTelemetry for Langfuse (this was missing!)
+            # CRITICAL: Initialize OpenTelemetry for Langfuse
             try:
                 self._initialize_opentelemetry(public_key, secret_key, host)
-                print("🚀 OpenTelemetry initialized successfully for Langfuse")
+                logging.info("🚀 OpenTelemetry initialized successfully for Langfuse")
             except Exception as otel_error:
-                print(f"⚠️ OpenTelemetry initialization failed: {otel_error}")
-                print("   Traces will not be sent to Langfuse")
+                from secure_logging_utils import log_exception_safely
+                log_exception_safely(logger, "Langfuse OpenTelemetry initialization", otel_error)
+                logging.warning("   Traces will not be sent to Langfuse")
                 # Don't return empty dict - still provide trace attributes for debugging
             
-            # Set up trace attributes with configurable project name
-            project_name = os.environ.get('PROJECT_NAME', 'genai-box')
-            self.trace_attributes = {
-                "session.id": f"{project_name}-session",
-                "user.id": f"{project_name}-user",
-                "langfuse.tags": [
-                    project_name,
-                    "Strands-Agent",
-                    "Production"
-                ]
-            }
+            # Use DRY helper to create standard trace attributes
+            self.trace_attributes = self._create_standard_trace_attributes()
             
-            print(f"✅ Langfuse observability provider initialized successfully")
-            print(f"📊 Trace attributes: {self.trace_attributes}")
+            logging.info("✅ Langfuse observability provider initialized successfully")
+            logging.debug("📊 Trace attributes configured")
             return self.trace_attributes
             
         except Exception as e:
-            print(f"❌ Error initializing Langfuse observability provider: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Langfuse provider initialization", e)
             return {}
     
     def _initialize_opentelemetry(self, public_key: str, secret_key: str, host: str):
@@ -90,19 +84,22 @@ class LangfuseObservabilityProvider(BaseObservabilityProvider):
         auth_string = f"{public_key}:{secret_key}"
         auth_header = base64.b64encode(auth_string.encode()).decode()
         
+        # Build endpoint and log securely
+        endpoint = f"{host}/api/public/otel/v1/traces"
+        self._log_endpoint_securely("Langfuse OTLP endpoint", endpoint)
+        logging.debug("🔑 Auth Header: ✅ Configured")
+        
         # Use common initialization with Langfuse-specific config
+        service_name, service_version = self._get_service_info()
         otlp_config = {
-            "endpoint": f"{host}/api/public/otel/v1/traces",
+            "endpoint": endpoint,
             "headers": {"Authorization": f"Basic {auth_header}"},
             "resource_attributes": {
-                "service.name": "genai-in-a-box",
-                "service.version": "1.0.0",
+                "service.name": service_name,
+                "service.version": service_version,
                 "deployment.environment": "production"
             }
         }
-        
-        print(f"📡 OTLP Endpoint: {otlp_config['endpoint']}")
-        print(f"🔑 Auth Header: ✅ Configured")
         
         self._initialize_opentelemetry_common(otlp_config)
     
@@ -160,10 +157,14 @@ class LangfuseObservabilityProvider(BaseObservabilityProvider):
             endpoint = self._normalize_otlp_endpoint(f"{host}/api/public/otel", "/v1/traces")
             headers = {"Authorization": f"Basic {auth_header}"}
             
+            # Log endpoint securely
+            self._log_endpoint_securely("Langfuse tracer endpoint", endpoint)
+            
             return self._build_standard_tracer_config(service_name, environment, endpoint, headers)
             
         except Exception as e:
-            print(f"⚠️ Error getting Strands tracer config for Langfuse: {e}")
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Langfuse tracer config generation", e)
             return {}
     
     def _cleanup_environment_variables(self):

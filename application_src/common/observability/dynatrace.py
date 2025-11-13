@@ -22,22 +22,24 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
         try:
             provider_config = self.get_provider_config()
             
-            print(f"🔍 Dynatrace provider config: {provider_config}")
+            logging.debug("🔍 Dynatrace provider configuration validation starting")
             
             # Get Dynatrace configuration
             dt_token = provider_config.get("dt_token", "")
             otlp_endpoint = provider_config.get("otlp_endpoint", "")
             
-            print(f"🔑 Dynatrace credentials check:")
-            print(f"   DT Token: {'✅ Present' if dt_token else '❌ Missing'}")
-            print(f"   OTLP Endpoint: {otlp_endpoint if otlp_endpoint else '❌ Missing'}")
+            # Use secure logging for credentials validation
+            logging.info("🔑 Dynatrace configuration validation:")
+            self._log_credentials_securely({
+                "dt_token": dt_token,
+                "otlp_endpoint": otlp_endpoint
+            })
             
-            if not dt_token:
-                print("❌ Error: Dynatrace token (dt_token) is required")
-                return {}
-                
-            if not otlp_endpoint:
-                print("❌ Error: Dynatrace OTLP endpoint (otlp_endpoint) is required")
+            # Validate required credentials
+            if not self._validate_required_credentials({
+                "dt_token": dt_token,
+                "otlp_endpoint": otlp_endpoint
+            }):
                 return {}
             
             # Set up environment variables for Dynatrace (CRITICAL for Strands integration)
