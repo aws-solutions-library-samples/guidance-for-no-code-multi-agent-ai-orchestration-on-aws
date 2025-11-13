@@ -80,14 +80,14 @@ class LangfuseObservabilityProvider(BaseObservabilityProvider):
     
     def _initialize_opentelemetry(self, public_key: str, secret_key: str, host: str):
         """Initialize OpenTelemetry using common base class method."""
-        # Build auth header
+        # Build auth header (never logged)
         auth_string = f"{public_key}:{secret_key}"
         auth_header = base64.b64encode(auth_string.encode()).decode()
         
-        # Build endpoint and log securely
+        # Build endpoint and log securely (no clear text)
         endpoint = f"{host}/api/public/otel/v1/traces"
         self._log_endpoint_securely("Langfuse OTLP endpoint", endpoint)
-        logging.debug("🔑 Auth Header: ✅ Configured")
+        logging.debug("🔑 Auth Header: ✅ Configured (not logged)")
         
         # Use common initialization with Langfuse-specific config
         service_name, service_version = self._get_service_info()

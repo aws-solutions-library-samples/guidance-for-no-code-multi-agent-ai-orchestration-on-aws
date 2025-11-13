@@ -87,8 +87,13 @@ class BaseObservabilityProvider(ABC):
                 hashed_value = secure_logger.hash_sensitive_value(str(value)) if value else 'NOT SET'
                 logging.info(f"   {key}: HASH:{hashed_value}")
             else:
-                # Log non-sensitive config values normally
-                logging.info(f"   {key}: {value}")
+                # Only log boolean, integer, or explicitly safe string values
+                if isinstance(value, (bool, int)) or key.lower() in ['service', 'environment', 'version']:
+                    logging.info(f"   {key}: {value}")
+                else:
+                    # For any other string values, hash them to be safe
+                    safe_value = secure_logger.hash_sensitive_value(str(value)) if value else 'NOT SET'
+                    logging.info(f"   {key}: HASH:{safe_value}")
     
     def _log_endpoint_securely(self, endpoint_name: str, endpoint_value: str):
         """Log endpoint information securely."""

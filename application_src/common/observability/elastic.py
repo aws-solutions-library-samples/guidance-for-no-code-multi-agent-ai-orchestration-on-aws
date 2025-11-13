@@ -29,16 +29,18 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
             api_key = provider_config.get("api_key", "")
             otlp_endpoint = provider_config.get("otlp_endpoint", "")
             
-            logger.debug("Elastic credentials check:")
-            logger.debug(f"   API Key: {'Present' if api_key else 'Missing'}")
-            logger.debug(f"   OTLP Endpoint: {'Configured' if otlp_endpoint else 'Missing'}")
+            # Use secure logging for credentials validation
+            logging.info("🔑 Elastic configuration validation:")
+            self._log_credentials_securely({
+                "api_key": api_key,
+                "otlp_endpoint": otlp_endpoint
+            })
             
-            if not api_key:
-                logger.error("Elastic API key (api_key) is required")
-                return {}
-                
-            if not otlp_endpoint:
-                logger.error("Elastic OTLP endpoint (otlp_endpoint) is required")
+            # Validate required credentials
+            if not self._validate_required_credentials({
+                "api_key": api_key,
+                "otlp_endpoint": otlp_endpoint
+            }):
                 return {}
             
             # Set up environment variables for Elastic (CRITICAL for Strands integration)
@@ -46,53 +48,40 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
             os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = otlp_endpoint
             os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=ApiKey {api_key}"
             
-            logger.info("Elastic environment variables configured successfully")
+            # Log environment variable setup securely
+            logging.info("✅ Elastic environment variables configured:")
+            logging.info("   ELASTIC_API_KEY: ✅ Set")
+            self._log_endpoint_securely("OTEL_EXPORTER_OTLP_ENDPOINT", otlp_endpoint)
+            logging.info("   OTEL_EXPORTER_OTLP_HEADERS: ✅ Set")
             
             # CRITICAL: Initialize OpenTelemetry for Elastic
             try:
                 self._initialize_opentelemetry(otlp_endpoint, api_key)
-                logger.info("OpenTelemetry initialized successfully for Elastic")
+                logging.info("🚀 OpenTelemetry initialized successfully for Elastic")
             except Exception as otel_error:
-                logger.warning(f"OpenTelemetry initialization failed: {otel_error}")
-                logger.warning("Traces will not be sent to Elastic")
+                from secure_logging_utils import log_exception_safely
+                log_exception_safely(logger, "Elastic OpenTelemetry initialization", otel_error)
+                logging.warning("   Traces will not be sent to Elastic")
                 # Don't return empty dict - still provide trace attributes for debugging
             
-            # Get service name from config or environment
-            # Priority: agent_name from config > AGENT_NAME env var > SERVICE_NAME env var > default
-            service_name = (
-                self.config.get("agent_name") or 
-                os.environ.get('AGENT_NAME') or 
-                os.environ.get('SERVICE_NAME') or 
-                'genai-in-a-box'
-            )
-            
-            # Get service version from config or environment
-            service_version = (
-                self.config.get("agent_version") or 
-                os.environ.get('SERVICE_VERSION') or 
-                '1.0.0'
-            )
-            
-            # Get optional dataset routing configuration
+            # Use DRY helper to create standard trace attributes with Elastic-specific additions
             dataset = provider_config.get("dataset", "generic.otel")
             namespace = provider_config.get("namespace", "default")
             
-            self.trace_attributes = {
-                "session.id": f"{service_name}-session-{uuid.uuid4()}",
-                "user.id": f"{service_name}-user",
-                "service.name": service_name,
-                "service.version": service_version,
-                "deployment.environment": os.environ.get('ENVIRONMENT', 'production'),
+            self.trace_attributes = self._create_standard_trace_attributes()
+            # Add Elastic-specific attributes
+            self.trace_attributes.update({
                 "data_stream.dataset": dataset,
                 "data_stream.namespace": namespace
-            }
+            })
             
-            logger.info("Elastic observability provider initialized successfully")
-            logger.debug(f"Trace attributes: {self.trace_attributes}")
+            logging.info("✅ Elastic observability provider initialized successfully")
+            logging.debug("📊 Trace attributes configured")
             return self.trace_attributes
             
         except Exception as e:
-            logger.exception("Error initializing Elastic observability provider")
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Elastic provider initialization", e)
             return {}
     
     def _initialize_opentelemetry(self, otlp_endpoint: str, api_key: str):
@@ -102,20 +91,17 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
         dataset = provider_config.get("dataset", "generic.otel")
         namespace = provider_config.get("namespace", "default")
         
-        # Get service name and version
-        service_name = self.config.get("agent_name", "genai-in-a-box")
-        service_version = self.config.get("agent_version", "1.0.0")
+        # Use DRY helper for service info
+        service_name, service_version = self._get_service_info()
         
-        # Ensure correct endpoint path
-        if not otlp_endpoint.endswith('/v1/traces'):
-            if otlp_endpoint.endswith('/'):
-                otlp_endpoint = otlp_endpoint + 'v1/traces'
-            else:
-                otlp_endpoint = otlp_endpoint + '/v1/traces'
+        # Normalize endpoint and log securely
+        normalized_endpoint = self._normalize_otlp_endpoint(otlp_endpoint, '/v1/traces')
+        self._log_endpoint_securely("Elastic OTLP endpoint", normalized_endpoint)
+        logging.debug("🔑 Auth Header: ✅ Configured (not logged)")
         
         # Use common initialization with Elastic-specific config
         otlp_config = {
-            "endpoint": otlp_endpoint,
+            "endpoint": normalized_endpoint,
             "headers": {"Authorization": f"ApiKey {api_key}"},
             "resource_attributes": {
                 "service.name": service_name,
@@ -125,9 +111,6 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
                 "data_stream.namespace": namespace
             }
         }
-        
-        logger.debug(f"   Final OTLP traces endpoint: {otlp_endpoint}")
-        logger.debug("   Headers: Authorization=ApiKey [REDACTED]")
         
         self._initialize_opentelemetry_common(otlp_config)
     
@@ -186,45 +169,31 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
             api_key = provider_config.get("api_key", "")
             otlp_endpoint = provider_config.get("otlp_endpoint", "")
             
-            # Ensure endpoint is for traces
-            if not otlp_endpoint.endswith('/v1/traces'):
-                if otlp_endpoint.endswith('/'):
-                    otlp_endpoint = otlp_endpoint + 'v1/traces'
-                else:
-                    otlp_endpoint = otlp_endpoint + '/v1/traces'
-            
-            # Return Elastic OTLP configuration for Strands tracer
-            return {
-                "service_name": service_name,
-                "otlp_endpoint": otlp_endpoint,
-                "headers": {"Authorization": f"ApiKey {api_key}"},
-                "enable_console_export": False,
-                "resource_attributes": {
-                    "service.name": service_name,
-                    "service.version": "1.0.0",
-                    "deployment.environment": environment,
-                    "data_stream.dataset": provider_config.get("dataset", "generic.otel"),
-                    "data_stream.namespace": provider_config.get("namespace", "default")
-                }
+            # Use DRY helper to normalize endpoint and build config
+            normalized_endpoint = self._normalize_otlp_endpoint(otlp_endpoint, "/v1/traces")
+            headers = {"Authorization": f"ApiKey {api_key}"}
+            additional_attributes = {
+                "data_stream.dataset": provider_config.get("dataset", "generic.otel"),
+                "data_stream.namespace": provider_config.get("namespace", "default")
             }
             
+            # Log endpoint securely
+            self._log_endpoint_securely("Elastic tracer endpoint", normalized_endpoint)
+            
+            return self._build_standard_tracer_config(service_name, environment, normalized_endpoint, headers, additional_attributes)
+            
         except Exception as e:
-            print(f"⚠️ Error getting Strands tracer config for Elastic: {e}")
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Elastic tracer config generation", e)
             return {}
     
     def _cleanup_environment_variables(self):
         """Clean up Elastic-specific environment variables."""
-        import os
         elastic_env_vars = [
             "ELASTIC_API_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS"
         ]
         
-        removed_count = 0
-        for env_var in elastic_env_vars:
-            if env_var in os.environ:
-                del os.environ[env_var]
-                removed_count += 1
-        
+        removed_count = self._cleanup_environment_variables_by_list(elastic_env_vars)
         logging.debug(f"Removed {removed_count} Elastic environment variables")
     
     def _provider_specific_cleanup(self):

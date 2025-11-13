@@ -46,59 +46,50 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
             os.environ["DT_TOKEN"] = dt_token
             os.environ["OTLP_ENDPOINT"] = otlp_endpoint
             
-            print(f"✅ Dynatrace environment variables set:")
-            print(f"   DT_TOKEN: {os.environ.get('DT_TOKEN', 'NOT SET')[:20]}...")
-            print(f"   OTLP_ENDPOINT: {os.environ.get('OTLP_ENDPOINT', 'NOT SET')}")
+            # Log environment variable setup securely
+            logging.info("✅ Dynatrace environment variables configured:")
+            logging.info("   DT_TOKEN: ✅ Set")
+            self._log_endpoint_securely("OTLP_ENDPOINT", otlp_endpoint)
             
             # CRITICAL: Initialize OpenTelemetry for Dynatrace
             try:
                 self._initialize_opentelemetry(dt_token, otlp_endpoint)
-                print("🚀 OpenTelemetry initialized successfully for Dynatrace")
+                logging.info("🚀 OpenTelemetry initialized successfully for Dynatrace")
             except Exception as otel_error:
-                print(f"⚠️ OpenTelemetry initialization failed: {otel_error}")
-                print("   Traces will not be sent to Dynatrace")
+                from secure_logging_utils import log_exception_safely
+                log_exception_safely(logger, "Dynatrace OpenTelemetry initialization", otel_error)
+                logging.warning("   Traces will not be sent to Dynatrace")
                 # Don't return empty dict - still provide trace attributes for debugging
             
-            # Generate a unique session ID
-            session_id = f"genai-session-{uuid.uuid4()}"
+            # Use DRY helper to create standard trace attributes
+            self.trace_attributes = self._create_standard_trace_attributes()
             
-            # Set up trace attributes with configurable project name
-            project_name = os.environ.get('PROJECT_NAME', 'genai-box')
-            self.trace_attributes = {
-                "session.id": f"{project_name}-session-{uuid.uuid4()}",
-                "user.id": f"{project_name}-user",
-                "dynatrace.tags": [
-                    project_name,
-                    "Strands-Agent",
-                    "Production"
-                ]
-            }
-            
-            print(f"✅ Dynatrace observability provider initialized successfully")
-            print(f"📊 Trace attributes: {self.trace_attributes}")
+            logging.info("✅ Dynatrace observability provider initialized successfully")
+            logging.debug("📊 Trace attributes configured")
             return self.trace_attributes
             
         except Exception as e:
-            print(f"❌ Error initializing Dynatrace observability provider: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Dynatrace provider initialization", e)
             return {}
     
     def _initialize_opentelemetry(self, dt_token: str, otlp_endpoint: str):
         """Initialize OpenTelemetry using common base class method."""
+        # Log endpoint securely (no clear text)
+        self._log_endpoint_securely("Dynatrace OTLP endpoint", otlp_endpoint)
+        logging.debug("🔑 Auth Header: ✅ Configured (not logged)")
+        
         # Use common initialization with Dynatrace-specific config
+        service_name, service_version = self._get_service_info()
         otlp_config = {
             "endpoint": otlp_endpoint,
             "headers": {"Authorization": f"Api-Token {dt_token}"},
             "resource_attributes": {
-                "service.name": "genai-in-a-box",
-                "service.version": "1.0.0",
+                "service.name": service_name,
+                "service.version": service_version,
                 "deployment.environment": "production"
             }
         }
-        
-        print(f"📡 OTLP Endpoint: {otlp_endpoint}")
-        print(f"🔑 Auth Header: Api-Token {dt_token[:20]}...")
         
         self._initialize_opentelemetry_common(otlp_config)
         
@@ -110,7 +101,7 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
         try:
             from traceloop.sdk import Traceloop
             
-            print("🤖 Initializing LLMetry for LLM tracing...")
+            logging.info("🤖 Initializing LLMetry for LLM tracing...")
             
             # Initialize Traceloop (LLMetry) - it will use the existing OpenTelemetry setup
             Traceloop.init(
@@ -118,18 +109,17 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
                 disable_batch=False,  # Use batching for better performance
             )
             
-            print("🚀 LLMetry initialized successfully - LLM calls will be traced")
-            print("📊 LLM-specific metrics: tokens, costs, latency, errors")
+            logging.info("🚀 LLMetry initialized successfully - LLM calls will be traced")
+            logging.info("📊 LLM-specific metrics: tokens, costs, latency, errors")
             
         except ImportError as import_error:
-            print(f"⚠️ LLMetry not available: {import_error}")
-            print("   Install with: pip install traceloop-sdk")
-            print("   Falling back to basic OpenTelemetry tracing")
+            logging.warning(f"⚠️ LLMetry not available: {str(import_error)}")
+            logging.info("   Install with: pip install traceloop-sdk")
+            logging.info("   Falling back to basic OpenTelemetry tracing")
         except Exception as llmetry_error:
-            print(f"⚠️ LLMetry initialization failed: {llmetry_error}")
-            print("   Falling back to basic OpenTelemetry tracing")
-            import traceback
-            traceback.print_exc()
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Dynatrace LLMetry initialization", llmetry_error)
+            logging.info("   Falling back to basic OpenTelemetry tracing")
     
     def _get_metrics_client_config(self, service_name: str, environment: str) -> Dict[str, Any]:
         """Get Dynatrace metrics client configuration."""
@@ -187,44 +177,28 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
             dt_token = provider_config.get("dt_token", "")
             otlp_endpoint = provider_config.get("otlp_endpoint", "")
             
-            # Ensure endpoint is for traces
-            if not otlp_endpoint.endswith('/v1/traces'):
-                if otlp_endpoint.endswith('/'):
-                    otlp_endpoint = otlp_endpoint + 'v1/traces'
-                else:
-                    otlp_endpoint = otlp_endpoint + '/v1/traces'
+            # Use DRY helper to normalize endpoint and build config
+            normalized_endpoint = self._normalize_otlp_endpoint(otlp_endpoint, "/v1/traces")
+            headers = {"Authorization": f"Api-Token {dt_token}"}
+            additional_attributes = {"dt.trace_sampled": "true"}
             
-            # Return Dynatrace OTLP configuration for Strands tracer
-            return {
-                "service_name": service_name,
-                "otlp_endpoint": otlp_endpoint,
-                "headers": {"Authorization": f"Api-Token {dt_token}"},
-                "enable_console_export": False,
-                "resource_attributes": {
-                    "service.name": service_name,
-                    "service.version": "1.0.0",
-                    "deployment.environment": environment,
-                    "dt.trace_sampled": "true"
-                }
-            }
+            # Log endpoint securely
+            self._log_endpoint_securely("Dynatrace tracer endpoint", normalized_endpoint)
+            
+            return self._build_standard_tracer_config(service_name, environment, normalized_endpoint, headers, additional_attributes)
             
         except Exception as e:
-            print(f"⚠️ Error getting Strands tracer config for Dynatrace: {e}")
+            from secure_logging_utils import log_exception_safely
+            log_exception_safely(logger, "Dynatrace tracer config generation", e)
             return {}
     
     def _cleanup_environment_variables(self):
         """Clean up Dynatrace-specific environment variables."""
-        import os
         dynatrace_env_vars = [
             "DT_TOKEN", "OTLP_ENDPOINT"
         ]
         
-        removed_count = 0
-        for env_var in dynatrace_env_vars:
-            if env_var in os.environ:
-                del os.environ[env_var]
-                removed_count += 1
-        
+        removed_count = self._cleanup_environment_variables_by_list(dynatrace_env_vars)
         logging.debug(f"Removed {removed_count} Dynatrace environment variables")
     
     def _provider_specific_cleanup(self):
