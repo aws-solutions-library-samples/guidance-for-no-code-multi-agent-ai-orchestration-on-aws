@@ -74,53 +74,20 @@ class BaseObservabilityProvider(ABC):
                 removed_count += 1
         return removed_count
     
-    def _log_credentials_securely(self, credentials_info: dict[str, Any]):
-        """Log credential validation status securely without exposing sensitive values."""
-        secure_logger = SecureLogger()
-        
-        for key, value in credentials_info.items():
-            if any(sensitive in key.lower() for sensitive in ['key', 'token', 'secret', 'password']):
-                status = '✅ Present' if value else '❌ Missing'
-                logging.info(f"   {key}: {status}")
-            elif 'endpoint' in key.lower() or 'host' in key.lower() or 'url' in key.lower():
-                # Hash endpoints/URLs as they may contain sensitive path info
-                hashed_value = secure_logger.hash_sensitive_value(str(value)) if value else 'NOT SET'
-                logging.info(f"   {key}: HASH:{hashed_value}")
-            else:
-                # Only log boolean, integer, or explicitly safe string values
-                if isinstance(value, (bool, int)) or key.lower() in ['service', 'environment', 'version']:
-                    logging.info(f"   {key}: {value}")
-                else:
-                    # For any other string values, hash them to be safe
-                    safe_value = secure_logger.hash_sensitive_value(str(value)) if value else 'NOT SET'
-                    logging.info(f"   {key}: HASH:{safe_value}")
-    
-    def _log_endpoint_securely(self, endpoint_name: str, endpoint_value: str):
-        """Log endpoint information securely."""
-        if endpoint_value:
-            secure_logger = SecureLogger()
-            hashed_endpoint = secure_logger.hash_sensitive_value(endpoint_value)
-            logging.debug(f"{endpoint_name}: HASH:{hashed_endpoint}")
-        else:
-            logging.warning(f"{endpoint_name}: NOT SET")
-    
-    def _validate_required_credentials(self, required_creds: dict[str, Any]) -> bool:
-        """Validate required credentials are present and log securely."""
-        secure_logger = SecureLogger()
+    def _validate_credentials_safely(self, credentials: list[tuple[str, Any]]) -> bool:
+        """Validate credentials are present with minimal logging to avoid security risks."""
         missing_creds = []
         
-        for cred_name, cred_value in required_creds.items():
+        # Simple validation - no verbose logging around sensitive operations
+        for cred_name, cred_value in credentials:
             if not cred_value:
                 missing_creds.append(cred_name)
-            else:
-                # Log that credential is present without exposing value
-                logging.debug(f"{cred_name}: ✅ Present")
         
         if missing_creds:
-            logging.error(f"❌ Missing required {self.provider_name} credentials: {', '.join(missing_creds)}")
+            logging.error(f"Missing required {self.provider_name} credentials: {', '.join(missing_creds)}")
             return False
         
-        logging.info(f"✅ All required {self.provider_name} credentials validated")
+        logging.info(f"✅ {self.provider_name} credentials validated")
         return True
     
     @abstractmethod

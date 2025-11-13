@@ -38,21 +38,12 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             enable_llm_obs = provider_config.get("enable_llm_obs", True)
             enable_logs = provider_config.get("enable_logs", True)
             
-            # Use secure logging for credentials validation
-            logging.info("🔑 Datadog configuration validation:")
-            self._log_credentials_securely({
-                "api_key": api_key,
-                "site": site,
-                "environment": environment,
-                "service": service_name,
-                "version": version,
-                "llm_observability": enable_llm_obs,
-                "logs": enable_logs
-            })
-            
-            # Validate required credentials
-            if not self._validate_required_credentials({"api_key": api_key}):
+            # Simple credential validation with minimal logging
+            if not api_key:
+                logging.error("Datadog API key required but not provided")
                 return {}
+            
+            logging.info("Datadog credentials validated")
             
             # Set up environment variables for ddtrace
             os.environ["DD_API_KEY"] = api_key

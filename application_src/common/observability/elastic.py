@@ -29,19 +29,12 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
             api_key = provider_config.get("api_key", "")
             otlp_endpoint = provider_config.get("otlp_endpoint", "")
             
-            # Use secure logging for credentials validation
-            logging.info("🔑 Elastic configuration validation:")
-            self._log_credentials_securely({
-                "api_key": api_key,
-                "otlp_endpoint": otlp_endpoint
-            })
-            
-            # Validate required credentials
-            if not self._validate_required_credentials({
-                "api_key": api_key,
-                "otlp_endpoint": otlp_endpoint
-            }):
+            # Simple credential validation with minimal logging
+            if not api_key or not otlp_endpoint:
+                logging.error("Elastic api_key and otlp_endpoint required but not provided")
                 return {}
+            
+            logging.info("Elastic credentials validated")
             
             # Set up environment variables for Elastic (CRITICAL for Strands integration)
             os.environ["ELASTIC_API_KEY"] = api_key

@@ -30,31 +30,20 @@ class LangfuseObservabilityProvider(BaseObservabilityProvider):
             secret_key = provider_config.get("secret_key", "")
             host = provider_config.get("host", "https://us.cloud.langfuse.com")
             
-            # Use secure logging for credentials validation
-            logging.info("🔑 Langfuse configuration validation:")
-            self._log_credentials_securely({
-                "public_key": public_key,
-                "secret_key": secret_key,
-                "host": host
-            })
-            
-            # Validate required credentials
-            if not self._validate_required_credentials({
-                "public_key": public_key,
-                "secret_key": secret_key
-            }):
+            # Simple credential validation with minimal logging
+            if not public_key or not secret_key:
+                logging.error("Langfuse public_key and secret_key required but not provided")
                 return {}
+            
+            logging.info("Langfuse credentials validated")
             
             # Set up environment variables for Langfuse (CRITICAL for Strands integration)
             os.environ["LANGFUSE_PUBLIC_KEY"] = public_key
             os.environ["LANGFUSE_SECRET_KEY"] = secret_key
             os.environ["LANGFUSE_HOST"] = host
             
-            # Log environment variable setup securely
-            logging.info("✅ Langfuse environment variables configured:")
-            logging.info("   LANGFUSE_PUBLIC_KEY: ✅ Set")
-            logging.info("   LANGFUSE_SECRET_KEY: ✅ Set") 
-            self._log_endpoint_securely("LANGFUSE_HOST", host)
+            # Minimal logging - avoid verbose logging around sensitive operations
+            logging.info("Langfuse environment variables configured")
             
             # CRITICAL: Initialize OpenTelemetry for Langfuse
             try:
