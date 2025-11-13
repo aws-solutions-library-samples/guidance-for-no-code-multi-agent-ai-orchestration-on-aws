@@ -820,12 +820,27 @@ const AgentWizard = ({
     const config = {};
     const prefix = `${componentType}_${providerName}_`;
     
-    // Extract all fields that match the component and provider
+    // First, get the schema for this component and provider to include default values
+    const componentSchema = formSchema[componentType];
+    const providerSchema = componentSchema?.providers?.[providerName];
+    
+    // Initialize with default values from schema
+    if (providerSchema?.fields) {
+      providerSchema.fields.forEach(field => {
+        if (field.default_value !== undefined) {
+          config[field.name] = field.default_value;
+        }
+      });
+    }
+    
+    // Override with actual values from form data
     Object.keys(agentData).forEach(key => {
       if (key.startsWith(prefix)) {
         const fieldName = key.replace(prefix, '');
         const fieldValue = agentData[key];
-        config[fieldName] = fieldValue;
+        if (fieldValue !== undefined && fieldValue !== '') {
+          config[fieldName] = fieldValue;
+        }
       }
     });
     

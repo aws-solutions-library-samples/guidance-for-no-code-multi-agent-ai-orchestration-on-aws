@@ -817,6 +817,92 @@ class FormSchemaRegistry:
                         default_value="default"
                     )
                 ]
+            ),
+            
+            "datadog": ProviderFormSchema(
+                provider_name="datadog",
+                provider_label="Datadog",
+                description="Complete Datadog observability platform using official ddtrace library - supports traces, logs, metrics, and specialized LLM observability for AI applications",
+                fields=[
+                    FormField(
+                        name="api_key",
+                        type=FieldType.PASSWORD,
+                        label="Datadog API Key",
+                        placeholder="Enter Datadog API key",
+                        help_text="Your Datadog API key for authentication",
+                        required=True,
+                        secure=True
+                    ),
+                    FormField(
+                        name="site",
+                        type=FieldType.SELECT,
+                        label="Datadog Site",
+                        help_text="Datadog site/region for your organization",
+                        required=False,
+                        default_value="datadoghq.com",
+                        options=[
+                            SelectOption(value="datadoghq.com", label="US1 (datadoghq.com)"),
+                            SelectOption(value="us3.datadoghq.com", label="US3 (us3.datadoghq.com)"),
+                            SelectOption(value="us5.datadoghq.com", label="US5 (us5.datadoghq.com)"),
+                            SelectOption(value="datadoghq.eu", label="EU (datadoghq.eu)"),
+                            SelectOption(value="ap1.datadoghq.com", label="AP1 (ap1.datadoghq.com)"),
+                            SelectOption(value="ap2.datadoghq.com", label="AP2 (ap2.datadoghq.com)"),
+                            SelectOption(value="us1-fed.datadoghq.com", label="US1-FED (us1-fed.datadoghq.com)")
+                        ]
+                    ),
+                    FormField(
+                        name="environment",
+                        type=FieldType.TEXT,
+                        label="Environment (Optional)",
+                        placeholder="production",
+                        help_text="Environment tag for organizing your services (e.g., production, staging, development)",
+                        required=False,
+                        default_value="production"
+                    ),
+                    FormField(
+                        name="service_name",
+                        type=FieldType.TEXT,
+                        label="Service Name (Optional)",
+                        placeholder="Leave empty to use agent name",
+                        help_text="Custom service name for Datadog (defaults to agent name if not specified)",
+                        required=False,
+                        default_value=""
+                    ),
+                    FormField(
+                        name="version",
+                        type=FieldType.TEXT,
+                        label="Service Version (Optional)",
+                        placeholder="1.0.0",
+                        help_text="Version tag for tracking deployments and releases",
+                        required=False,
+                        default_value="1.0.0"
+                    ),
+                    FormField(
+                        name="enable_llm_obs",
+                        type=FieldType.CHECKBOX,
+                        label="Enable LLM Observability",
+                        help_text="Enable specialized AI/ML observability for LLM interactions, prompt tracking, and cost analysis",
+                        required=False,
+                        default_value=True
+                    ),
+                    FormField(
+                        name="enable_logs",
+                        type=FieldType.CHECKBOX,
+                        label="Enable Log Collection",
+                        help_text="Enable direct log submission to Datadog with automatic trace correlation",
+                        required=False,
+                        default_value=True
+                    ),
+                    FormField(
+                        name="tags",
+                        type=FieldType.TEXTAREA,
+                        label="Additional Tags (Optional)",
+                        placeholder="service:genai-agent\nteam:ai-platform\nversion:1.0.0",
+                        help_text="Additional tags for organizing metrics and logs (one tag per line, format: key:value)",
+                        required=False,
+                        rows=3
+                    )
+                ]
             )
         }
     

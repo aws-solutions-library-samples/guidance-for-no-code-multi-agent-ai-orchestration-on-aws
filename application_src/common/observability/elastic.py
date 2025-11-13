@@ -96,141 +96,142 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
             return {}
     
     def _initialize_opentelemetry(self, otlp_endpoint: str, api_key: str):
-        """Initialize OpenTelemetry with OTLP exporter for Elastic."""
-        try:
-            # Import OpenTelemetry components
-            from opentelemetry import trace
-            from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-            from opentelemetry.sdk.trace import TracerProvider
-            from opentelemetry.sdk.trace.export import BatchSpanProcessor
-            from opentelemetry.sdk.resources import Resource
-            
-            logger.debug("OpenTelemetry packages imported successfully")
-            
-            # Get dataset and namespace from config
-            provider_config = self.get_provider_config()
-            dataset = provider_config.get("dataset", "generic.otel")
-            namespace = provider_config.get("namespace", "default")
-            
-            # Get service name and version (same logic as trace_attributes)
-            service_name = (
-                self.config.get("agent_name") or 
-                os.environ.get('AGENT_NAME') or 
-                os.environ.get('SERVICE_NAME') or 
-                'genai-in-a-box'
-            )
-            service_version = (
-                self.config.get("agent_version") or 
-                os.environ.get('SERVICE_VERSION') or 
-                '1.0.0'
-            )
-            
-            # Create resource with service information
-            # Include data stream routing attributes for Elastic
-            resource = Resource.create({
+        """Initialize OpenTelemetry using common base class method."""
+        # Get dataset and namespace from config
+        provider_config = self.get_provider_config()
+        dataset = provider_config.get("dataset", "generic.otel")
+        namespace = provider_config.get("namespace", "default")
+        
+        # Get service name and version
+        service_name = self.config.get("agent_name", "genai-in-a-box")
+        service_version = self.config.get("agent_version", "1.0.0")
+        
+        # Ensure correct endpoint path
+        if not otlp_endpoint.endswith('/v1/traces'):
+            if otlp_endpoint.endswith('/'):
+                otlp_endpoint = otlp_endpoint + 'v1/traces'
+            else:
+                otlp_endpoint = otlp_endpoint + '/v1/traces'
+        
+        # Use common initialization with Elastic-specific config
+        otlp_config = {
+            "endpoint": otlp_endpoint,
+            "headers": {"Authorization": f"ApiKey {api_key}"},
+            "resource_attributes": {
                 "service.name": service_name,
                 "service.version": service_version,
                 "deployment.environment": os.environ.get('ENVIRONMENT', 'production'),
                 "data_stream.dataset": dataset,
                 "data_stream.namespace": namespace
-            })
+            }
+        }
+        
+        logger.debug(f"   Final OTLP traces endpoint: {otlp_endpoint}")
+        logger.debug("   Headers: Authorization=ApiKey [REDACTED]")
+        
+        self._initialize_opentelemetry_common(otlp_config)
+    
+    def _get_metrics_client_config(self, service_name: str, environment: str) -> Dict[str, Any]:
+        """Get Elastic metrics client configuration."""
+        provider_config = self.get_provider_config()
+        return {
+            "type": "elastic_otlp_metrics",
+            "api_key": provider_config.get("api_key", ""),
+            "otlp_endpoint": provider_config.get("otlp_endpoint", "").replace('/v1/traces', '/v1/metrics'),
+            "tags": {"service": service_name, "env": environment}
+        }
+    
+    def _get_log_client_config(self) -> Dict[str, Any]:
+        """Get Elastic log client configuration."""
+        return {"type": "elastic_otlp_spans"}
+    
+    def _send_metrics_with_client(self, metrics_data: Dict[str, Any], client_config: Dict[str, Any]):
+        """Send metrics using Elastic OTLP - minimal implementation."""
+        from opentelemetry import metrics as otel_metrics
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+        from opentelemetry.sdk.metrics import MeterProvider
+        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+        
+        # Create OTLP metric exporter
+        exporter = OTLPMetricExporter(
+            endpoint=client_config["otlp_endpoint"],
+            headers={"Authorization": f"ApiKey {client_config['api_key']}"}
+        )
+        reader = PeriodicExportingMetricReader(exporter, export_interval_millis=5000)
+        meter = MeterProvider(metric_readers=[reader]).get_meter("strands")
+        
+        # Send metrics
+        if metrics_data["tokens"]:
+            counter = meter.create_counter("tokens_total")
+            counter.add(metrics_data["tokens"]["total"], client_config["tags"])
+            print(f"✅ Sent {metrics_data['tokens']['total']} tokens to Elastic")
+    
+    def _emit_log_with_client(self, log_data: Dict[str, Any], client_config: Dict[str, Any]):
+        """Emit log using Elastic OTLP spans - minimal implementation."""
+        from opentelemetry import trace
+        tracer = trace.get_tracer("strands-logs")
+        with tracer.start_as_current_span("strands_log") as span:
+            span.set_attribute("log.message", log_data["message"])
+            span.set_attribute("log.level", log_data["level"])
+    
+    def get_strands_tracer_config(self, service_name: str, environment: str) -> Dict[str, Any]:
+        """Get configuration for Strands get_tracer() to send traces to Elastic."""
+        # CRITICAL: Only return config if this provider is currently active
+        if not self._validate_provider_is_active():
+            logging.debug(f"Skipping tracer config for inactive {self.provider_name} provider")
+            return {}
             
-            # Set up tracer provider
-            tracer_provider = TracerProvider(resource=resource)
-            trace.set_tracer_provider(tracer_provider)
+        try:
+            provider_config = self.get_provider_config()
+            api_key = provider_config.get("api_key", "")
+            otlp_endpoint = provider_config.get("otlp_endpoint", "")
             
-            logger.debug("TracerProvider configured")
-            
-            # Create OTLP exporter with Elastic API Key authentication
-            headers = {"Authorization": f"ApiKey {api_key}"}
-            
-            logger.debug(f"Data Stream: traces-{dataset}-{namespace}")
-            logger.debug("OTLP Endpoint Configuration:")
-            logger.debug(f"   Base endpoint from config: {otlp_endpoint}")
-            
-            # Ensure the endpoint has the correct OTLP traces path
-            # Elastic OTLP endpoint should end with /v1/traces
+            # Ensure endpoint is for traces
             if not otlp_endpoint.endswith('/v1/traces'):
                 if otlp_endpoint.endswith('/'):
                     otlp_endpoint = otlp_endpoint + 'v1/traces'
                 else:
                     otlp_endpoint = otlp_endpoint + '/v1/traces'
             
-            logger.debug(f"   Final OTLP traces endpoint: {otlp_endpoint}")
-            logger.debug("   Headers: Authorization=ApiKey [REDACTED]")
+            # Return Elastic OTLP configuration for Strands tracer
+            return {
+                "service_name": service_name,
+                "otlp_endpoint": otlp_endpoint,
+                "headers": {"Authorization": f"ApiKey {api_key}"},
+                "enable_console_export": False,
+                "resource_attributes": {
+                    "service.name": service_name,
+                    "service.version": "1.0.0",
+                    "deployment.environment": environment,
+                    "data_stream.dataset": provider_config.get("dataset", "generic.otel"),
+                    "data_stream.namespace": provider_config.get("namespace", "default")
+                }
+            }
             
-            otlp_exporter = OTLPSpanExporter(
-                endpoint=otlp_endpoint,
-                headers=headers
-            )
+        except Exception as e:
+            print(f"⚠️ Error getting Strands tracer config for Elastic: {e}")
+            return {}
+    
+    def _cleanup_environment_variables(self):
+        """Clean up Elastic-specific environment variables."""
+        import os
+        elastic_env_vars = [
+            "ELASTIC_API_KEY", "OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS"
+        ]
+        
+        removed_count = 0
+        for env_var in elastic_env_vars:
+            if env_var in os.environ:
+                del os.environ[env_var]
+                removed_count += 1
+        
+        logging.debug(f"Removed {removed_count} Elastic environment variables")
+    
+    def _provider_specific_cleanup(self):
+        """Elastic-specific cleanup for provider transitions."""
+        try:
+            # Elastic uses standard OpenTelemetry, so minimal specific cleanup needed
+            logging.info("Elastic-specific cleanup completed")
             
-            logger.debug("OTLP Exporter created successfully")
-            logger.debug(f"   Exporter endpoint: {otlp_exporter._endpoint}")
-            logger.debug(f"   Exporter will send traces to: {otlp_endpoint}")
-            
-            # Wrap the exporter to add detailed error logging and resilience
-            class ResilientOTLPSpanExporter:
-                def __init__(self, wrapped_exporter):
-                    self._wrapped = wrapped_exporter
-                    self._failed_exports = 0
-                    self._max_failures = 5  # Stop trying after 5 consecutive failures
-                    
-                def export(self, spans):
-                    # Skip export if we've had too many failures
-                    if self._failed_exports >= self._max_failures:
-                        from opentelemetry.sdk.trace.export import SpanExportResult
-                        logger.warning(f"OTLP Export Skipped: Too many consecutive failures ({self._failed_exports})")
-                        return SpanExportResult.FAILURE
-                    
-                    try:
-                        logger.debug("OTLP Export Debug:")
-                        logger.debug(f"   Sending {len(spans)} spans to: {self._wrapped._endpoint}")
-                        logger.debug(f"   Request headers: {self._wrapped._headers}")
-                        result = self._wrapped.export(spans)
-                        logger.debug(f"   Export result: {result}")
-                        
-                        # Reset failure counter on success
-                        if result.name == 'SUCCESS':
-                            self._failed_exports = 0
-                        else:
-                            self._failed_exports += 1
-                            logger.warning(f"Export failed, failure count: {self._failed_exports}")
-                            
-                        return result
-                    except Exception as e:
-                        self._failed_exports += 1
-                        logger.error(f"OTLP Export Error (failure {self._failed_exports}/{self._max_failures}):")
-                        logger.error(f"   Error type: {type(e).__name__}")
-                        logger.error(f"   Error message: {str(e)}")
-                        logger.error(f"   Endpoint attempted: {self._wrapped._endpoint}")
-                        
-                        # Only log full traceback for first few failures to reduce log spam
-                        if self._failed_exports <= 3:
-                            logger.exception("OTLP Export Exception details:")
-                        
-                        # Return failure instead of raising to prevent crash
-                        from opentelemetry.sdk.trace.export import SpanExportResult
-                        return SpanExportResult.FAILURE
-                        
-                def shutdown(self):
-                    return self._wrapped.shutdown()
-                    
-                def force_flush(self, timeout_millis: int = 30000):
-                    return self._wrapped.force_flush(timeout_millis)
-            
-            # Wrap the exporter for resilience and debugging
-            resilient_exporter = ResilientOTLPSpanExporter(otlp_exporter)
-            
-            # Add span processor with resilient exporter
-            span_processor = BatchSpanProcessor(resilient_exporter)
-            tracer_provider.add_span_processor(span_processor)
-            
-            logger.info("OpenTelemetry configured with OTLP exporter for Elastic")
-            
-        except ImportError as import_error:
-            logger.error(f"Missing OpenTelemetry dependencies: {import_error}")
-            logger.error("Install with: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp")
-            raise
-        except Exception as setup_error:
-            logger.exception("OpenTelemetry setup failed")
-            raise
+        except Exception as e:
+            logging.warning(f"Error in Elastic-specific cleanup: {e}")

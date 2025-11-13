@@ -13,6 +13,7 @@ sseclient-py
 uv
 mem0ai
 langfuse
+ddtrace  # Official Datadog tracing, metrics, logs, and LLM observability library
 opensearch-py
 faiss-cpu
 langchain

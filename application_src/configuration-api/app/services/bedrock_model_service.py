@@ -160,10 +160,23 @@ class BedrockModelService:
             logger.info("Fetching foundation models...")
             response = self.bedrock_client.list_foundation_models()
             
+            total_foundation_models = len(response.get('modelSummaries', []))
+            active_foundation_models = 0
+            skipped_foundation_models = 0
+            
             for model in response.get('modelSummaries', []):
                 model_id = model['modelId']
                 model_name = model['modelName']
                 provider_name = model['providerName']
+                model_lifecycle_status = model.get('modelLifecycleStatus', 'UNKNOWN')
+                
+                # Filter out models that are not ACTIVE
+                if model_lifecycle_status != 'ACTIVE':
+                    logger.debug(f"Skipping model {model_id} with lifecycle status: {model_lifecycle_status}")
+                    skipped_foundation_models += 1
+                    continue
+                
+                active_foundation_models += 1
                 
                 # Get detailed model information for foundation models
                 try:
@@ -211,7 +224,8 @@ class BedrockModelService:
                         'output_modalities': output_modalities,
                         'customizations_supported': model_details_info.get('customizationsSupported', []),
                         'inference_types_supported': model_details_info.get('inferenceTypesSupported', []),
-                        'response_streaming_supported': model_details_info.get('responseStreamingSupported', False)
+                        'response_streaming_supported': model_details_info.get('responseStreamingSupported', False),
+                        'model_lifecycle_status': model_lifecycle_status
                     }
                     
                 except Exception as detail_error:
@@ -227,11 +241,15 @@ class BedrockModelService:
                         'output_modalities': ['TEXT'],
                         'customizations_supported': [],
                         'inference_types_supported': [],
-                        'response_streaming_supported': True
+                        'response_streaming_supported': True,
+                        'model_lifecycle_status': model_lifecycle_status
                     }
                 
                 # Add to all models list
                 models_by_capability['all_models'].append(model_details[model_id])
+            
+            # Log filtering summary for foundation models
+            logger.info(f"Foundation model filtering summary: {active_foundation_models} ACTIVE models cached, {skipped_foundation_models} non-ACTIVE models skipped (out of {total_foundation_models} total)")
             
             # Step 2: Fetch cross-region inference profiles
             logger.info("Fetching cross-region inference profiles...")
@@ -495,12 +513,13 @@ class BedrockModelService:
     def get_available_foundation_models(self, force_refresh: bool = False) -> Dict[str, Any]:
         """
         Get all available foundation models from global cache or AWS Bedrock.
+        Only includes models with ACTIVE lifecycle status.
         
         Args:
             force_refresh: Whether to bypass cache and fetch fresh data
             
         Returns:
-            Dictionary containing available models with metadata
+            Dictionary containing available ACTIVE models with metadata
         """
         try:
             # Try global cache first for better performance
@@ -516,6 +535,10 @@ class BedrockModelService:
             # Fetch models from AWS Bedrock
             response = self.bedrock_client.list_foundation_models()
             
+            total_foundation_models = len(response.get('modelSummaries', []))
+            active_foundation_models = 0
+            skipped_foundation_models = 0
+            
             # Process and categorize models
             models_by_capability = {
                 "text_generation": [],
@@ -530,6 +553,15 @@ class BedrockModelService:
                 model_id = model['modelId']
                 model_name = model['modelName']
                 provider_name = model['providerName']
+                model_lifecycle_status = model.get('modelLifecycleStatus', 'UNKNOWN')
+                
+                # Filter out models that are not ACTIVE
+                if model_lifecycle_status != 'ACTIVE':
+                    logger.debug(f"Skipping model {model_id} with lifecycle status: {model_lifecycle_status}")
+                    skipped_foundation_models += 1
+                    continue
+                
+                active_foundation_models += 1
                 
                 # Get detailed model information
                 try:
@@ -577,7 +609,8 @@ class BedrockModelService:
                         'output_modalities': output_modalities,
                         'customizations_supported': model_details_info.get('customizationsSupported', []),
                         'inference_types_supported': model_details_info.get('inferenceTypesSupported', []),
-                        'response_streaming_supported': model_details_info.get('responseStreamingSupported', False)
+                        'response_streaming_supported': model_details_info.get('responseStreamingSupported', False),
+                        'model_lifecycle_status': model_lifecycle_status
                     }
                     
                 except Exception as detail_error:
@@ -593,11 +626,15 @@ class BedrockModelService:
                         'output_modalities': ['TEXT'],
                         'customizations_supported': [],
                         'inference_types_supported': [],
-                        'response_streaming_supported': True
+                        'response_streaming_supported': True,
+                        'model_lifecycle_status': model_lifecycle_status
                     }
                 
                 # Add to all models list
                 models_by_capability['all_models'].append(model_details[model_id])
+            
+            # Log filtering summary for foundation models
+            logger.info(f"Foundation model filtering summary: {active_foundation_models} ACTIVE models cached, {skipped_foundation_models} non-ACTIVE models skipped (out of {total_foundation_models} total)")
             
             # Cache results
             cache_result = {
