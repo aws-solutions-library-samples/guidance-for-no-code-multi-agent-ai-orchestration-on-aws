@@ -45,14 +45,21 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             
             logging.info("Datadog credentials validated")
             
-            # Set up environment variables for ddtrace
+            # Set up environment variables for official Datadog Strands SDK integration
             os.environ["DD_API_KEY"] = api_key
             os.environ["DD_SITE"] = site
             os.environ["DD_ENV"] = environment
             os.environ["DD_SERVICE"] = service_name
             os.environ["DD_VERSION"] = version
             
-            # Force agentless mode for ECS deployment - Official Datadog approach
+            # Official OpenTelemetry configuration for Strands SDK integration
+            # Following https://docs.datadoghq.com/llm_observability/instrumentation/otel_instrumentation/#using-strands-agents
+            os.environ["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] = "http/protobuf"
+            os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = f"https://trace.agent.{site}/v1/traces"
+            os.environ["OTEL_EXPORTER_OTLP_TRACES_HEADERS"] = f"dd-api-key={api_key},dd-otlp-source=datadog"
+            os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
+            
+            # Force agentless mode for ECS deployment
             os.environ["DD_TRACE_AGENT_URL"] = f"https://trace.agent.{site}"
             os.environ["DD_TRACE_API_VERSION"] = "v0.4"
             os.environ["DD_AGENT_HOST"] = ""
@@ -259,6 +266,7 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
     def _cleanup_environment_variables(self):
         """Clean up Datadog-specific environment variables."""
         datadog_env_vars = [
+            # Datadog DD_* variables
             "DD_API_KEY", "DD_SITE", "DD_ENV", "DD_SERVICE", "DD_VERSION",
             "DD_TRACE_AGENT_URL", "DD_TRACE_API_VERSION", "DD_AGENT_HOST",
             "DD_DOGSTATSD_PORT", "DD_APM_DD_URL", "DD_LLMOBS_INTAKE_URL",
@@ -267,7 +275,11 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             "DD_TRACE_TLS_CA_CERT", "DD_TRACE_TLS_VERIFY", "DD_LLMOBS_TLS_VERIFY",
             "DD_TRACE_WRITER_BUFFER_SIZE_BYTES", "DD_TRACE_WRITER_MAX_PAYLOAD_SIZE",
             "DD_TRACE_WRITER_INTERVAL_SECONDS", "DATADOG_METRICS_ENABLED",
-            "DATADOG_SERVICE_NAME", "DATADOG_ENVIRONMENT"
+            "DATADOG_SERVICE_NAME", "DATADOG_ENVIRONMENT",
+            
+            # OpenTelemetry variables used for Datadog Strands SDK integration
+            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_SEMCONV_STABILITY_OPT_IN"
         ]
         
         removed_count = self._cleanup_environment_variables_by_list(datadog_env_vars)
@@ -308,7 +320,7 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             logging.warning(f"Error in Datadog-specific cleanup: {e}")
     
     def get_strands_tracer_config(self, service_name: str, environment: str) -> Dict[str, Any]:
-        """Get configuration for Strands get_tracer() to send traces to Datadog."""
+        """Get configuration for Strands get_tracer() following official Datadog guidance."""
         # CRITICAL: Only return config if this provider is currently active
         if not self._validate_provider_is_active():
             logging.debug(f"Skipping tracer config for inactive {self.provider_name} provider")
@@ -319,12 +331,17 @@ class DatadogObservabilityProvider(BaseObservabilityProvider):
             site = provider_config.get("site", "datadoghq.com")
             api_key = provider_config.get("api_key", "")
             
-            # Use DRY helper to build standard tracer config with secure logging
-            endpoint = f"https://otlp-intake.{site}/v1/traces"
-            headers = {"DD-API-KEY": api_key}
+            # Follow official Datadog guidance for Strands SDK integration
+            # https://docs.datadoghq.com/llm_observability/instrumentation/otel_instrumentation/#using-strands-agents
             
-            # Log endpoint securely
-            self._log_endpoint_securely("Datadog OTLP endpoint", endpoint)
+            # Use official Datadog trace agent endpoint (not OTLP intake)
+            endpoint = f"https://trace.agent.{site}/v1/traces"
+            headers = {
+                "dd-api-key": api_key,
+                "dd-otlp-source": "datadog"
+            }
+            
+            logging.debug("Using official Datadog trace agent endpoint for Strands integration")
             
             return self._build_standard_tracer_config(service_name, environment, endpoint, headers)
             
