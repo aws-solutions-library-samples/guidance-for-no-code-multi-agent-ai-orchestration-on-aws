@@ -15,7 +15,7 @@ from logging_config import get_logger, log_debug, log_info, log_error_without_ex
 logger = get_logger(__name__)
 
 # CRITICAL: Initialize observability BEFORE importing Strands Agent
-# This ensures Langfuse environment variables are set before Strands Agent initialization
+# This ensures environment variables are set before Strands Agent initialization
 log_info(logger, "🔧 Initializing observability before Strands Agent import")
 from config import Config
 from observability import ObservabilityFactory
@@ -23,9 +23,10 @@ from observability import ObservabilityFactory
 # Note: Observability will be initialized per-agent, not at module level
 log_warning(logger, "⚠️ Observability will be initialized per-agent - Strands Agent will run without global tracing")
 
-# NOW import Strands Agent (after environment variables are set)
+# NOW import Strands Agent and tracer (after environment variables are set)
 from strands import Agent, tool
 from strands.models import BedrockModel
+from strands.telemetry.tracer import get_tracer
 from strands_tools import http_request
 
 # Import system prompt
@@ -401,6 +402,30 @@ def create_agent(prompt, user_id=None, agent_name="qa_agent"):
             else:
                 print("No knowledge base tools available")
         
+        # Configure Strands SDK observability (get_tracer + logging)
+        try:
+            observability_provider = ObservabilityFactory.get_current_provider()
+            if observability_provider:
+                service_name = observability_provider.trace_attributes.get("service.name", agent_name)
+                environment = observability_provider.trace_attributes.get("deployment.environment", "production")
+                
+                print(f"🔍 Configuring Strands SDK observability for {observability_provider.provider_name}...")
+                
+                # Configure Strands tracer with provider-specific settings
+                if hasattr(observability_provider, 'get_strands_tracer_config'):
+                    tracer_config = observability_provider.get_strands_tracer_config(service_name, environment)
+                    if tracer_config:
+                        print(f"📡 Configuring Strands get_tracer with {observability_provider.provider_name} settings...")
+                        tracer = get_tracer(**tracer_config)
+                        print(f"✅ Strands tracer configured for {observability_provider.provider_name}")
+                
+                # Configure Strands logging with provider-specific settings  
+                if hasattr(observability_provider, 'configure_strands_logging'):
+                    observability_provider.configure_strands_logging(service_name, environment)
+                
+        except Exception as obs_error:
+            print(f"⚠️ Error configuring Strands SDK observability: {obs_error}")
+        
         # Get trace attributes for observability
         trace_attributes = get_trace_attributes(agent_name)
         
@@ -453,7 +478,26 @@ def run_agent(prompt: str, user_id=None, agent_name="qa_agent"):
             return "Error: Failed to create agent"
         
         # Run the agent
-        response = agent(prompt)  # Call the agent directly instead of using .run()
+        agent_result = agent(prompt)  # Call the agent directly and get AgentResult
+        
+        # Extract response from AgentResult
+        response = str(agent_result)  # AgentResult can be converted to string for response
+        
+        # Send Strands metrics to observability provider if configured
+        try:
+            observability_provider = ObservabilityFactory.get_current_provider()
+            if observability_provider and hasattr(observability_provider, 'process_strands_metrics'):
+                service_name = observability_provider.trace_attributes.get("service.name", agent_name)
+                environment = observability_provider.trace_attributes.get("deployment.environment", "production")
+                
+                print(f"📊 Forwarding Strands metrics to {observability_provider.provider_name}...")
+                observability_provider.process_strands_metrics(
+                    agent_result, service_name, environment
+                )
+            else:
+                print("ℹ️ No observability provider configured for metrics")
+        except Exception as metrics_error:
+            print(f"⚠️ Failed to process Strands metrics: {metrics_error}")
         
         # Get memory configuration from the specified agent
         from config import Config
@@ -639,6 +683,27 @@ async def run_agent_and_stream_response(prompt: str, user_id=None, agent_name="q
                     print(f"Streamed chunk: {repr(chunk_text)}")
         
         print(f"✅ Streaming completed. Total response length: {len(response)}")
+        
+        # Send Strands metrics to observability provider if configured (after streaming completes)
+        try:
+            observability_provider = ObservabilityFactory.get_current_provider()
+            if observability_provider and hasattr(observability_provider, 'process_strands_metrics'):
+                # Get the final AgentResult from the completed streaming
+                final_result = agent.last_result if hasattr(agent, 'last_result') else None
+                if final_result:
+                    service_name = observability_provider.trace_attributes.get("service.name", agent_name)
+                    environment = observability_provider.trace_attributes.get("deployment.environment", "production")
+                    
+                    print(f"📊 Forwarding Strands streaming metrics to {observability_provider.provider_name}...")
+                    observability_provider.process_strands_metrics(
+                        final_result, service_name, environment
+                    )
+                else:
+                    print("ℹ️ No AgentResult available for metrics processing")
+            else:
+                print("ℹ️ No observability provider configured for metrics")
+        except Exception as metrics_error:
+            print(f"⚠️ Failed to process Strands streaming metrics: {metrics_error}")
         
         # Store the response in memory if memory is enabled
         if memory_enabled and mem0_module and hasattr(mem0_module, 'mem0_memory'):

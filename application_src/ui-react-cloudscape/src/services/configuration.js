@@ -585,6 +585,27 @@ class ConfigurationService {
     return agentName === 'supervisor_agent' || agentName === 'supervisor';
   }
 
+  // CloudFormation Stack Update Method
+  async updateAgentStack(agentName, parameters = {}, timeoutMinutes = 30) {
+    try {
+      const response = await this.api.put(`/api/deployment/stack/${agentName}`, parameters, {
+        params: {
+          timeout_minutes: timeoutMinutes
+        }
+      });
+      return response.data;
+    } catch (error) {
+      // Handle specific error cases
+      if (error.response?.status === 404) {
+        throw new Error(`Stack not found for agent '${agentName}'`);
+      }
+      if (error.response?.data?.detail?.includes('No updates')) {
+        throw new Error('No updates needed - stack is already up to date');
+      }
+      throw new Error(`Failed to update agent stack: ${error.response?.data?.detail || error.message}`);
+    }
+  }
+
 }
 
 export default new ConfigurationService();

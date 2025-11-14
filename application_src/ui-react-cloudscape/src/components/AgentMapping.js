@@ -46,6 +46,10 @@ const AgentMapping = ({
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [selectedSkillDetails, setSelectedSkillDetails] = useState(null);
   const [showSkillDetails, setShowSkillDetails] = useState(false);
+  
+  // Update agent state
+  const [updatingAgent, setUpdatingAgent] = useState(null);
+  const [updateSuccess, setUpdateSuccess] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -444,6 +448,43 @@ const AgentMapping = ({
     setSelectedSkillDetails(null);
   };
 
+  // Handle CloudFormation stack update
+  const handleUpdateAgent = async (agentName) => {
+    if (agentName === 'supervisor-agent') {
+      setError('Cannot update supervisor agent stack - it is managed by the main CDK deployment');
+      return;
+    }
+    
+    setUpdatingAgent(agentName);
+    setError(null);
+    setUpdateSuccess(null);
+    
+    try {
+      const configService = await import('../services/configuration');
+      
+      // Trigger CloudFormation stack update
+      const result = await configService.default.updateAgentStack(agentName);
+      
+      setUpdateSuccess(`Successfully updated stack for agent: ${agentName}`);
+      
+      // Refresh agent mapping after successful update
+      setTimeout(async () => {
+        await loadAgentMappings();
+        setUpdateSuccess(null);
+      }, 3000);
+      
+    } catch (error) {
+      if (error.message.includes('No updates needed')) {
+        setUpdateSuccess(`Agent ${agentName} is already up to date`);
+        setTimeout(() => setUpdateSuccess(null), 3000);
+      } else {
+        setError(`Failed to update agent ${agentName}: ${error.message}`);
+      }
+    } finally {
+      setUpdatingAgent(null);
+    }
+  };
+
   return (
     <Modal
       visible={isOpen}
@@ -508,6 +549,18 @@ const AgentMapping = ({
                 The network map below shows the expected topology structure. Use "Refresh Network" to retry discovery.
               </Box>
             </SpaceBetween>
+          </Alert>
+        )}
+
+        {updateSuccess && (
+          <Alert 
+            type="success" 
+            header="Update Successful"
+            dismissible 
+            onDismiss={() => setUpdateSuccess(null)}
+            statusIconAriaLabel="Success"
+          >
+            {updateSuccess}
           </Alert>
         )}
 
@@ -1073,7 +1126,7 @@ const AgentMapping = ({
                       content: item => (
                         /* AWS Foundation Visual Context - Agent Actions */
                         <SpaceBetween size="s">
-                          <SpaceBetween direction="horizontal" size="s">
+                          <SpaceBetween direction="horizontal" size="s" wrap={true}>
                             <CanUpdateAgents>
                               <Button
                                 onClick={() => onOpenAgentWizard(item.name)}
@@ -1084,6 +1137,27 @@ const AgentMapping = ({
                               >
                                 Configure
                               </Button>
+                            </CanUpdateAgents>
+                            
+                            <CanUpdateAgents>
+                              {item.name !== 'supervisor-agent' && (
+                                <SpaceBetween direction="vertical" size="xxs">
+                                  <Button
+                                    onClick={() => handleUpdateAgent(item.name)}
+                                    iconName="upload"
+                                    variant="normal"
+                                    size="small"
+                                    loading={updatingAgent === item.name}
+                                    disabled={updatingAgent !== null}
+                                    ariaLabel={`Update CloudFormation stack for ${item.name}`}
+                                  >
+                                    {updatingAgent === item.name ? 'Updating...' : 'Update Stack'}
+                                  </Button>
+                                  <Box variant="small" color="text-body-secondary" textAlign="center">
+                                    Sync infrastructure with latest config
+                                  </Box>
+                                </SpaceBetween>
+                              )}
                             </CanUpdateAgents>
                             
                             <CanDeleteAgents>
@@ -1107,7 +1181,7 @@ const AgentMapping = ({
                             <SpaceBetween direction="horizontal" size="xs" alignItems="center">
                               <Icon name="status-warning" />
                               <Box variant="small" color="text-status-warning">
-                                System agent - cannot be deleted
+                                System agent - managed by main CDK deployment
                               </Box>
                             </SpaceBetween>
                           )}

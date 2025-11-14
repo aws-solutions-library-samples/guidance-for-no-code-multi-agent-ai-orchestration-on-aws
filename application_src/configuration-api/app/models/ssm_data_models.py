@@ -34,6 +34,17 @@ class ProviderType(str, Enum):
     YES = "Yes"
     DEFAULT = "default"
     CUSTOM = "custom"
+    # Memory providers
+    MEM0 = "mem0"
+    ELASTICSEARCH = "elasticsearch"
+    BEDROCK_AGENTCORE = "bedrock_agentcore"
+    OPENSEARCH = "opensearch"
+    # Knowledge base providers
+    BEDROCK = "bedrock"
+    BEDROCK_KB = "bedrock_kb"
+    CUSTOM_KB = "custom_kb"
+    # Guardrail providers
+    BEDROCK_GUARDRAIL = "bedrock"
 
 
 class StreamingType(str, Enum):
@@ -93,6 +104,10 @@ class SSMAgentConfiguration(BaseModel):
     model_id: str = Field(
         ..., 
         description="Primary model identifier with region prefix (e.g. us.anthropic.claude-3-5-sonnet-20241022-v2:0)"
+    )
+    model_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Multiple model identifiers for dynamic model switching (optional, for multi-model support)"
     )
     judge_model_id: str = Field(
         ..., 
@@ -506,7 +521,7 @@ class SSMDataValidator(BaseModel):
             
             return {
                 "valid": True,
-                "model": validated_config.dict(),
+                "model": validated_config.model_dump(mode='json'),
                 "errors": [],
                 "warnings": []
             }

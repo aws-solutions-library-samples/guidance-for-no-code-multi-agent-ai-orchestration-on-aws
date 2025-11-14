@@ -723,8 +723,15 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
                            security_group: ec2.SecurityGroup,
                            desired_count: int,
                            lattice_resources: Dict[str, Any],
-                           port: int) -> ecs.CfnService:
-        """Create ECS service with VPC Lattice configuration and fast rolling deployment behavior."""
+                           port: int,
+                           force_new_deployment: bool = False) -> ecs.CfnService:
+        """Create ECS service with VPC Lattice configuration and fast rolling deployment behavior.
+        
+        Args:
+            force_new_deployment: When True, forces a new deployment even without task definition changes.
+                                 This enables CloudFormation stack updates to trigger redeployment (e.g., for update button).
+                                 Default is False for non-agent services.
+        """
         # Use rolling deployment with 0% minimum for fastest deployments
         # This allows all previous tasks to be killed during deployment for speed
         minimum_healthy_percent = 0  # Allow all tasks to be replaced for fastest deployment
@@ -762,6 +769,7 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
             ),
             deployment_configuration=deployment_config,
             health_check_grace_period_seconds=15,  # Reduced for faster deployments
+            force_new_deployment=force_new_deployment,  # Configurable per service type
             vpc_lattice_configurations=[
                 ecs.CfnService.VpcLatticeConfigurationProperty(
                     role_arn=lattice_resources["ecs_service_role"].role_arn,
@@ -793,15 +801,18 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
         if service_type:
             self._apply_permissions_boundary_to_task_role(task_definition.task_role, service_type)
         
+        # EXECUTION ROLE permissions (needed for ECS agent to start containers)
+        self.add_ecr_permissions(task_definition.execution_role)  # ← FIXED: ECR permissions go to execution role
+        self.add_logs_permissions(task_definition.execution_role, log_group_arns)  # ← FIXED: Logging goes to execution role
+        
+        # TASK ROLE permissions (needed by application running inside container)
         self.add_bedrock_permissions(task_definition.task_role)
         # Get KMS key from KMS stack via direct reference (no import/export needed)
         # This is more reliable than import/export and avoids naming mismatches
         kms_key_arn = self._get_kms_key_arn()
         self.add_ssm_permissions(task_definition.task_role, kms_key_arn=kms_key_arn)
-        self.add_logs_permissions(task_definition.task_role, log_group_arns)
         self.add_vpc_lattice_permissions(task_definition.task_role)
         self.add_ecs_task_permissions(task_definition.task_role)
-        self.add_ecr_permissions(task_definition.task_role)
         self.add_ec2_network_permissions(task_definition.task_role)
         # Aurora database integration permissions
         self.add_rds_data_permissions(task_definition.task_role)
@@ -1074,7 +1085,8 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
                                task_definition: ecs.FargateTaskDefinition,
                                security_group: ec2.SecurityGroup,
                                desired_count: int,
-                               target_group: elbv2.ApplicationTargetGroup) -> ecs.FargateService:
+                               target_group: elbv2.ApplicationTargetGroup,
+                               force_new_deployment: bool = False) -> ecs.FargateService:
         """Create ECS service with ALB integration."""
         # Circuit breaker is always enabled with rollback for reliability
         minimum_healthy_percent = self.get_optional_config('MinimumHealthyPercent', DEFAULT_MINIMUM_HEALTHY_PERCENT_ROLLING)
@@ -1099,6 +1111,11 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
         # Attach the service to the target group
         service.attach_to_application_target_group(target_group)
         
+        # Set force_new_deployment on the underlying CFN resource if enabled
+        if force_new_deployment:
+            cfn_service = service.node.default_child
+            cfn_service.force_new_deployment = True
+        
         return service
     
     def _configure_alb_task_permissions(self,
@@ -1107,12 +1124,16 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
         """Configure IAM permissions for the task (includes VPC Lattice permissions for service discovery)."""
         # Get KMS key ARN using direct reference instead of import/export
         kms_key_arn = self._get_kms_key_arn()
+        
+        # EXECUTION ROLE permissions (needed for ECS agent to start containers)
+        self.add_ecr_permissions(task_definition.execution_role)  # ← FIXED: ECR permissions go to execution role
+        self.add_logs_permissions(task_definition.execution_role, log_group_arns)  # ← FIXED: Logging goes to execution role
+        
+        # TASK ROLE permissions (needed by application running inside container)
         self.add_bedrock_permissions(task_definition.task_role)
         self.add_ssm_permissions(task_definition.task_role, kms_key_arn=kms_key_arn)
-        self.add_logs_permissions(task_definition.task_role, log_group_arns)
         self.add_vpc_lattice_permissions(task_definition.task_role)  # Added for service discovery
         self.add_ecs_task_permissions(task_definition.task_role)
-        self.add_ecr_permissions(task_definition.task_role)
         self.add_ec2_network_permissions(task_definition.task_role)
         # Aurora database integration permissions
         self.add_rds_data_permissions(task_definition.task_role)
@@ -1152,7 +1173,8 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
                                               environment_vars: Optional[Dict[str, str]] = None,
                                               platform: ecr_assets.Platform = ecr_assets.Platform.LINUX_ARM64,
                                               dockerfile_path: Optional[str] = None,
-                                              vpc_lattice_service_name: Optional[str] = None) -> Dict[str, Any]:
+                                              vpc_lattice_service_name: Optional[str] = None,
+                                              force_new_deployment: bool = False) -> Dict[str, Any]:
         """
         Create a Fargate service with ALB and VPC Lattice integration.
         
@@ -1220,7 +1242,7 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
             # Create ECS service that targets the ALB
             ecs_service = self._create_alb_ecs_service(
                 service_name, task_definition, alb_resources["security_group"],
-                desired_count, alb_resources["target_group"]
+                desired_count, alb_resources["target_group"], force_new_deployment
             )
             
             # Configure IAM permissions

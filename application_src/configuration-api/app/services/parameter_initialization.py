@@ -259,13 +259,13 @@ class ParameterInitializationService:
         )
         
         # Validate the configuration before returning
-        validation_result = SSMDataValidator.validate_agent_configuration(config_model.dict())
+        validation_result = SSMDataValidator.validate_agent_configuration(config_model.model_dump(mode='json'))
         if not validation_result["valid"]:
             logger.error(f"Configuration from development.yaml is invalid: {validation_result['errors']}")
             raise ValueError(f"Invalid configuration from development.yaml: {validation_result['errors']}")
         
         logger.info(f"✅ Generated valid configuration for {agent_name} using ONLY development.yaml values")
-        return config_model.dict()
+        return config_model.model_dump(mode='json')
     
     def _get_default_supervisor_config(self, supervisor_name: str) -> Dict[str, Any]:
         """Get default supervisor agent configuration using ONLY configuration values from development.yaml."""

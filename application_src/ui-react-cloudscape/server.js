@@ -113,6 +113,32 @@ const safeUrlEncode = (str) => {
     .substring(0, 500); // Limit length to prevent log injection
 };
 
+// Safe error serialization helper to avoid circular reference issues
+const safeErrorSerialize = (error) => {
+  if (!error) return 'Unknown error';
+  
+  try {
+    // Only serialize safe parts of error object
+    const safeError = {
+      message: error.message,
+      name: error.name,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      config: error.config ? {
+        method: error.config.method,
+        url: error.config.url,
+        timeout: error.config.timeout
+      } : undefined
+    };
+    
+    return JSON.stringify(safeError, null, 2);
+  } catch (serializeError) {
+    // Fallback if even safe serialization fails
+    return `Error: ${error.message || 'Unknown'}, Status: ${error.response?.status || 'Unknown'}`;
+  }
+};
+
 // Enhanced security: Validate agent name parameter
 const validateAgentName = (agentName) => {
   if (!agentName || typeof agentName !== 'string') {
@@ -736,7 +762,7 @@ app.post('/api/config/system-prompts/create/:agentName', async (req, res) => {
     }
     
     console.log(`[PROXY] POST ${CONFIGURATION_API_ENDPOINT}/config/system-prompts/create/${safeUrlEncode(agentName)}`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header for system prompt creation');
+    console.log('[PROXY] Forwarding Authorization header for system prompt creation');
     const response = await axios.post(`${CONFIGURATION_API_ENDPOINT}/config/system-prompts/create/${safeUrlEncode(agentName)}`, req.body, {
       headers: getAuthHeaders(req) // ← FIX: Forward auth headers for system prompt creation
     });
@@ -757,7 +783,7 @@ app.get('/api/config/discover', async (req, res) => {
     res.json(response.data);
   } catch (error) {
     console.error('[PROXY ERROR] Failed to discover services:', safeUrlEncode(error.message));
-    console.error('[PROXY ERROR] Error details:', safeUrlEncode(JSON.stringify(error.response?.data) || error.message || 'Unknown error'));
+    console.error('[PROXY ERROR] Error details:', safeUrlEncode(safeErrorSerialize(error)));
     handleAuthError(error, res, 'discover services');
   }
 });
@@ -814,7 +840,7 @@ app.post('/api/config/refresh-agent/:agentName', async (req, res) => {
     }
     
     console.log('[PROXY] POST /api/config/refresh-agent/', agentName, '->', `${CONFIGURATION_API_ENDPOINT}/config/refresh-agent/${agentName}`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header for agent refresh');
+    console.log('[PROXY] Forwarding Authorization header for agent refresh');
     
     const response = await axios.post(`${CONFIGURATION_API_ENDPOINT}/config/refresh-agent/${safeUrlEncode(agentName)}`, {}, {
       headers: getAuthHeaders(req), // ← FIX: Forward auth headers for agent refresh
@@ -846,7 +872,7 @@ app.post('/api/config/agent/:agentName/reload', async (req, res) => {
     }
     
     console.log(`[PROXY] POST /api/config/agent/${agentName}/reload`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header for agent reload');
+    console.log('[PROXY] Forwarding Authorization header for agent reload');
     
     // Step 1: Get agent mapping to find agent endpoint (with auth)
     const mappingResponse = await axios.get(`${CONFIGURATION_API_ENDPOINT}/agent-mapping`, {
@@ -945,7 +971,7 @@ app.post('/api/config/agent/:agentName/reload', async (req, res) => {
 app.post('/api/deployment/create-agent', async (req, res) => {
   try {
     console.log('[PROXY] POST /api/deployment/create-agent');
-    console.log('[PROXY] 🔐 Forwarding Authorization header for deployment API');
+    console.log('[PROXY] Forwarding Authorization header for deployment API');
     console.log('[PROXY] Request body:', req.body);
     
     // Forward the request directly to the Config API's create-agent endpoint
@@ -973,7 +999,7 @@ app.get('/api/deployment/stack-status/:agentName', async (req, res) => {
     }
     
     console.log(`[PROXY] GET /api/deployment/stack-status/${agentName}`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header for stack status check');
+    console.log('[PROXY] Forwarding Authorization header for stack status check');
     
     const response = await axios.get(`${CONFIGURATION_API_ENDPOINT}/api/deployment/stack-status/${safeUrlEncode(agentName)}`, {
       headers: getAuthHeaders(req),
@@ -991,7 +1017,7 @@ app.get('/api/deployment/stack-status/:agentName', async (req, res) => {
 app.post('/api/deployment/refresh-agent-urls', async (req, res) => {
   try {
     console.log(`[PROXY] POST ${SUPERVISOR_AGENT_ENDPOINT}/refresh-agent-urls`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header to Supervisor Agent for refresh');
+    console.log('[PROXY] Forwarding Authorization header to Supervisor Agent for refresh');
     
     const response = await axios.post(`${SUPERVISOR_AGENT_ENDPOINT}/refresh-agent-urls`, {}, {
       headers: getAuthHeaders(req),  // ← FIX: Forward auth headers for refresh
@@ -1007,11 +1033,38 @@ app.post('/api/deployment/refresh-agent-urls', async (req, res) => {
   }
 });
 
+// Stack Update proxy route (for updating agent CloudFormation stacks)
+app.put('/api/deployment/stack/:agentName', async (req, res) => {
+  const { agentName } = req.params;
+  
+  try {
+    // Security validation
+    if (!validateAgentName(agentName)) {
+      return res.status(400).json({ error: 'Invalid agent name format' });
+    }
+    
+    console.log(`[PROXY] PUT /api/deployment/stack/${agentName}`);
+    console.log('[PROXY] Forwarding Authorization header for stack update');
+    
+    const response = await axios.put(`${CONFIGURATION_API_ENDPOINT}/api/deployment/stack/${safeUrlEncode(agentName)}`, req.body, {
+      headers: getAuthHeaders(req),
+      timeout: 600000 // 10 minutes timeout for update operations
+    });
+    
+    console.log(`[PROXY] Stack update successful for ${safeUrlEncode(agentName)}`);
+    res.json(response.data);
+  } catch (error) {
+    console.error('[PROXY ERROR] Failed to update stack:', safeUrlEncode(agentName), safeUrlEncode(error.message || 'Unknown error'));
+    console.error('[PROXY ERROR] Error details:', safeUrlEncode(JSON.stringify(error.response?.data || {}) || error.message || 'Unknown error'));
+    handleAuthError(error, res, 'update agent stack');
+  }
+});
+
 // STREAMING ONLY Proxy routes for Supervisor Agent (UX Optimized) with OAuth forwarding
 app.post('/api/agent/chat', async (req, res) => {
   try {
-    console.log('[PROXY] 🌊 STREAMING-ONLY: POST /api/agent/chat -> Supervisor Agent Streaming');
-    console.log('[PROXY] 🔐 Forwarding Authorization header to Supervisor Agent');
+    console.log('[PROXY] STREAMING-ONLY: POST /api/agent/chat -> Supervisor Agent Streaming');
+    console.log('[PROXY] Forwarding Authorization header to Supervisor Agent');
     
     const response = await axios.post(`${SUPERVISOR_AGENT_ENDPOINT}/agent-streaming`, req.body, {
       headers: getAuthHeaders(req),  // ← FIX: Forward auth headers
@@ -1034,9 +1087,9 @@ app.post('/api/agent/chat', async (req, res) => {
 
 // DEPRECATED: Redirect sync calls to streaming for consistency with OAuth forwarding
 app.post('/api/agent/chat-sync', async (req, res) => {
-  console.log('[PROXY] 🚨 DEPRECATED: chat-sync called - redirecting to streaming for optimal UX');
-  console.log('[PROXY] 💡 STREAMING ENFORCED: All UI communication uses streaming');
-  console.log('[PROXY] 🔐 Forwarding Authorization header to Supervisor Agent');
+  console.log('[PROXY] DEPRECATED: chat-sync called - redirecting to streaming for optimal UX');
+  console.log('[PROXY] STREAMING ENFORCED: All UI communication uses streaming');
+  console.log('[PROXY] Forwarding Authorization header to Supervisor Agent');
   
   try {
     // Redirect to streaming endpoint with proper auth headers
@@ -1054,7 +1107,7 @@ app.post('/api/agent/chat-sync', async (req, res) => {
       });
       
       response.data.on('end', () => {
-        console.log('[PROXY] 💡 Streaming->Sync conversion complete');
+        console.log('[PROXY] Streaming->Sync conversion complete');
         res.json({ response: completeResponse });
         resolve();
       });
@@ -1083,7 +1136,7 @@ app.delete('/api/config/delete/:agentName', async (req, res) => {
     }
     
     console.log(`[PROXY] DELETE /api/config/delete/${agentName} -> ${CONFIGURATION_API_ENDPOINT}/config/delete/${agentName}`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header for agent deletion');
+    console.log('[PROXY] Forwarding Authorization header for agent deletion');
     
     const response = await axios.delete(`${CONFIGURATION_API_ENDPOINT}/config/delete/${safeUrlEncode(agentName)}`, {
       headers: getAuthHeaders(req) // ← FIX: Forward auth headers for deletion
@@ -1111,7 +1164,7 @@ app.delete('/api/config/delete-complete/:agentName', async (req, res) => {
     
     console.log(`[PROXY] DELETE /api/config/delete-complete/${agentName} -> ${CONFIGURATION_API_ENDPOINT}/config/delete-complete/${agentName}`);
     console.log(`[PROXY] Include infrastructure: ${includeInfrastructure}`);
-    console.log('[PROXY] 🔐 Forwarding Authorization header for complete agent deletion');
+    console.log('[PROXY] Forwarding Authorization header for complete agent deletion');
     
     const response = await axios.delete(`${CONFIGURATION_API_ENDPOINT}/config/delete-complete/${safeUrlEncode(agentName)}`, {
       params: {
@@ -1274,18 +1327,18 @@ app.get('*', (req, res) => {
 const HOST = '0.0.0.0';
 
 app.listen(PORT, HOST, () => {
-  console.log(`🚀 React UI Backend Server running on ${HOST}:${PORT}`);
-  console.log(`📡 Configuration API: ${CONFIGURATION_API_ENDPOINT}`);
-  console.log(`🤖 Supervisor Agent: ${SUPERVISOR_AGENT_ENDPOINT}`);
-  console.log(`🔧 NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
+  console.log(`React UI Backend Server running on ${HOST}:${PORT}`);
+  console.log(`Configuration API: ${CONFIGURATION_API_ENDPOINT}`);
+  console.log(`Supervisor Agent: ${SUPERVISOR_AGENT_ENDPOINT}`);
+  console.log(`NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
   console.log(` Current directory: ${__dirname}`);
   
   const fs = require('fs');
   try {
     const buildExists = fs.existsSync(path.join(__dirname, 'build'));
-    console.log(`📦 Build directory exists: ${buildExists}`);
+    console.log(`Build directory exists: ${buildExists}`);
   } catch (e) {
-    console.log(`📦 Error checking build directory: ${e.message}`);
+    console.log(`Error checking build directory: ${e.message}`);
   }
 });
 
