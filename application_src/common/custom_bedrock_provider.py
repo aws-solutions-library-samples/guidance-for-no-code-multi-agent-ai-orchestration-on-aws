@@ -103,9 +103,9 @@ class CustomBedrockModel(Model):
                     tcp_keepalive=True  # Enable TCP keepalive for long connections
                 )
             )
-            logger.info(f"✅ Custom Bedrock client initialized for {self.config['model_id']} in region {self.config['region']}")
+            logger.info(f"Custom Bedrock client initialized for {self.config['model_id']} in region {self.config['region']}")
         except Exception as e:
-            logger.warning(f"❌ Failed to initialize custom Bedrock client: {e}")
+            logger.error(f"Failed to initialize custom Bedrock client: {e}")
             raise
     
     def _is_throttling_error(self, error: Exception) -> bool:
@@ -128,7 +128,7 @@ class CustomBedrockModel(Model):
             # Check error code first (most reliable)
             for code in throttling_codes:
                 if code in error_code:
-                    logger.warning(f"🚨 BEDROCK THROTTLING CODE: {error_code}")
+                    logger.warning(f"Bedrock throttling detected - error code: {error_code}")
                     return True
             
             # Check error message for throttling indicators
@@ -140,7 +140,7 @@ class CustomBedrockModel(Model):
             
             for msg in throttling_messages:
                 if msg in error_message:
-                    logger.warning(f"🚨 BEDROCK THROTTLING MESSAGE: {error_message}")
+                    logger.warning(f"Bedrock throttling detected - message: {error_message}")
                     return True
         
         return False
@@ -167,16 +167,17 @@ class CustomBedrockModel(Model):
         
         for pattern in connection_errors:
             if pattern in error_message:
-                logger.warning(f"🔌 CONNECTION ERROR DETECTED: {error_message}")
+                logger.warning(f"Connection error detected: {error_message}")
                 return True
         
         return False
     
     def _format_messages_for_bedrock(self, messages: Messages) -> list[dict[str, Any]]:
-        """Convert Strands Messages to Bedrock converse_stream format."""
+        """Convert Strands Messages to Bedrock converse_stream format with validation."""
         bedrock_messages = []
+        tool_use_ids = set()  # Track tool use IDs to validate results
         
-        for message in messages:
+        for msg_idx, message in enumerate(messages):
             role = message.get('role', 'user')
             content_blocks = message.get('content', [])
             
@@ -190,9 +191,13 @@ class CustomBedrockModel(Model):
                 elif isinstance(block, dict) and 'toolUse' in block:
                     # Handle tool use blocks
                     tool_use = block['toolUse']
+                    tool_use_id = tool_use.get('toolUseId')
+                    if tool_use_id:
+                        tool_use_ids.add(tool_use_id)
+                        logger.debug(f"Registered tool use ID: {tool_use_id}")
                     bedrock_content.append({
                         "toolUse": {
-                            "toolUseId": tool_use.get('toolUseId'),
+                            "toolUseId": tool_use_id,
                             "name": tool_use.get('name'),
                             "input": tool_use.get('input', {})
                         }
@@ -200,12 +205,21 @@ class CustomBedrockModel(Model):
                 elif isinstance(block, dict) and 'toolResult' in block:
                     # Handle tool result blocks
                     tool_result = block['toolResult']
+                    tool_use_id = tool_result.get('toolUseId')
+                    
+                    # Validate that this tool result matches a previous tool use
+                    if tool_use_id not in tool_use_ids:
+                        logger.warning(f"Tool result ID {tool_use_id} at message {msg_idx} doesn't match any previous tool use. Available IDs: {tool_use_ids}")
+                        # Skip this invalid tool result to prevent ValidationException
+                        continue
+                    
                     bedrock_content.append({
                         "toolResult": {
-                            "toolUseId": tool_result.get('toolUseId'),
+                            "toolUseId": tool_use_id,
                             "content": tool_result.get('content', [])
                         }
                     })
+                    logger.debug(f"Validated tool result ID: {tool_use_id}")
             
             # Only add messages with actual content
             if bedrock_content:
@@ -214,16 +228,17 @@ class CustomBedrockModel(Model):
                     "content": bedrock_content
                 })
             else:
-                logger.warning(f"⚠️ Skipping empty message with role: {role}")
+                logger.warning(f"Skipping empty message with role: {role}")
         
         # Ensure we have at least one message
         if not bedrock_messages:
-            logger.warning("⚠️ No valid messages found, adding default message")
+            logger.warning("No valid messages found, adding default message")
             bedrock_messages.append({
                 "role": "user",
                 "content": [{"text": "Hello"}]
             })
         
+        logger.debug(f"Formatted {len(bedrock_messages)} messages with {len(tool_use_ids)} tool use IDs")
         return bedrock_messages
     
     def _format_request_body(
@@ -296,9 +311,9 @@ class CustomBedrockModel(Model):
             request = self._format_request_body(messages, system_prompt, tool_specs, **kwargs)
             
             if tool_specs:
-                logger.info(f"🛠️ Custom Bedrock request includes {len(tool_specs)} tools")
+                logger.debug(f"Custom Bedrock request includes {len(tool_specs)} tools")
             
-            logger.info(f"🎯 Custom Bedrock streaming with {self.config['model_id']}")
+            logger.info(f"Custom Bedrock streaming with {self.config['model_id']}")
             
             # Use converse_stream API like official SDK
             response = await asyncio.get_event_loop().run_in_executor(
@@ -315,10 +330,10 @@ class CustomBedrockModel(Model):
                     # This follows the same pattern as the official SDK
                     yield chunk
             
-            logger.info(f"✅ Custom Bedrock streaming completed for {self.config['model_id']}")
+            logger.info(f"Custom Bedrock streaming completed for {self.config['model_id']}")
             
         except Exception as e:
-            logger.error(f"🚨 Custom Bedrock streaming error: {type(e).__name__}: {e}")
+            logger.exception("Custom Bedrock streaming error")
             
             # Check if this is throttling and convert to Strands exception
             if self._is_throttling_error(e):
@@ -326,7 +341,7 @@ class CustomBedrockModel(Model):
                 raise ModelThrottledException(f"Custom Bedrock throttling detected: {e}") from e
             elif self._is_connection_error(e):
                 # Connection errors - treat as throttling to trigger model switching
-                logger.warning(f"🔌 Connection error treated as throttling: {e}")
+                logger.warning(f"Connection error treated as throttling: {e}")
                 raise ModelThrottledException(f"Custom Bedrock connection error: {e}") from e
             else:
                 # Re-raise non-throttling errors as-is
@@ -415,7 +430,7 @@ class ModelSwitchingBedrockProvider:
         self.current_model_index = 0
         self.model_cooldowns = {}  # model_id -> cooldown_until_timestamp
         
-        logger.info(f"✅ Model Switching Bedrock Provider initialized with {len(self.available_models)} models from shared config")
+        logger.info(f"Model Switching Bedrock Provider initialized with {len(self.available_models)} models from shared config")
     
     def get_next_available_model(self) -> Optional[str]:
         """
@@ -433,7 +448,7 @@ class ModelSwitchingBedrockProvider:
         ]
         for model_id in expired_models:
             del self.model_cooldowns[model_id]
-            logger.info(f"🔄 Model {model_id} cooldown expired")
+            logger.info(f"Model {model_id} cooldown expired")
         
         # Find next available model
         for i in range(len(self.available_models)):
@@ -442,10 +457,10 @@ class ModelSwitchingBedrockProvider:
             
             if next_model not in self.model_cooldowns:
                 self.current_model_index = next_index
-                logger.info(f"🎯 Next available model: {next_model}")
+                logger.info(f"Next available model: {next_model}")
                 return next_model
         
-        logger.warning("❌ No models available - all in cooldown")
+        logger.warning("No models available - all in cooldown")
         return None
     
     def put_model_in_cooldown(self, model_id: str, cooldown_seconds: Optional[int] = None):
@@ -455,7 +470,7 @@ class ModelSwitchingBedrockProvider:
         
         cooldown_until = time.time() + cooldown_seconds
         self.model_cooldowns[model_id] = cooldown_until
-        logger.warning(f"🚨 Model {model_id} in cooldown for {cooldown_seconds}s (using shared config)")
+        logger.warning(f"Model {model_id} in cooldown for {cooldown_seconds}s (using shared config)")
     
     def create_switching_model(self, initial_model_id: Optional[str] = None, **kwargs) -> 'SwitchingBedrockModel':
         """
@@ -507,15 +522,15 @@ class SwitchingBedrockModel(Model):
         
         # Initialize with the first model
         self.current_model = CustomBedrockModel(model_id=initial_model_id, **kwargs)
-        logger.info(f"🔧 Switching model initialized with {initial_model_id}")
+        logger.info(f"Switching model initialized with {initial_model_id}")
     
     def _switch_to_model(self, model_id: str):
         """Switch to a specific model."""
         try:
             self.current_model = CustomBedrockModel(model_id=model_id, **self.kwargs)
-            logger.info(f"🔄 Switched to model: {model_id}")
+            logger.info(f"Switched to model: {model_id}")
         except Exception as e:
-            logger.warning(f"🚨 Error in stream: {e}")
+            logger.error(f"Error in stream: {e}")
             raise
     
     async def stream(
@@ -532,22 +547,22 @@ class SwitchingBedrockModel(Model):
         
         while self.switches_attempted <= self.max_switches:
             try:
-                logger.info(f"🎯 Attempting stream with model: {self.current_model.get_config()['model_id']} (switch attempt {self.switches_attempted})")
+                logger.info(f"Attempting stream with model: {self.current_model.get_config()['model_id']} (switch attempt {self.switches_attempted})")
                 
                 async for event in self.current_model.stream(messages, tool_specs, system_prompt, **kwargs):
                     yield event
                 
                 # Success - stream completed
-                logger.info(f"✅ Stream completed successfully with model: {self.current_model.get_config()['model_id']}")
+                logger.info(f"Stream completed successfully with model: {self.current_model.get_config()['model_id']}")
                 return
                 
             except ModelThrottledException as e:
                 self.switches_attempted += 1
                 current_model_id = self.current_model.get_config()['model_id']
-                logger.warning(f"🚨 Model {current_model_id} throttled (attempt {self.switches_attempted})")
+                logger.warning(f"Model {current_model_id} throttled (attempt {self.switches_attempted})")
                 
                 if self.switches_attempted > self.max_switches:
-                    logger.error(f"❌ Exceeded max model switches ({self.max_switches})")
+                    logger.error(f"Exceeded max model switches ({self.max_switches})")
                     raise Exception(f"All model switching attempts failed. Last error: {e}")
                 
                 # Put current model in cooldown
@@ -558,15 +573,15 @@ class SwitchingBedrockModel(Model):
                 if next_model:
                     # Switch to next model
                     self._switch_to_model(next_model)
-                    logger.warning(f"🔄 IMMEDIATE MODEL SWITCH: {current_model_id} → {next_model}")
+                    logger.warning(f"Immediate model switch: {current_model_id} -> {next_model}")
                     continue
                 
                 # No more models available
-                logger.error(f"❌ No alternative models available")
+                logger.error("No alternative models available")
                 raise Exception(f"No alternative models available. Last error: {e}")
             
             except Exception as e:
-                logger.warning(f"🚨 Non-throttling error with model {self.current_model.get_config()['model_id']}: {e}")
+                logger.exception(f"Non-throttling error with model {self.current_model.get_config()['model_id']}")
                 raise e
         
         raise Exception(f"Stream failed after {self.switches_attempted} model switches")
@@ -604,21 +619,21 @@ class SwitchingBedrockModel(Model):
         
         while self.switches_attempted <= self.max_switches:
             try:
-                logger.info(f"🎯 Attempting structured output with model: {self.current_model.get_config()['model_id']} (switch attempt {self.switches_attempted})")
+                logger.info(f"Attempting structured output with model: {self.current_model.get_config()['model_id']} (switch attempt {self.switches_attempted})")
                 
                 result = await self.current_model.structured_output(messages, schema, tool_specs, system_prompt, **kwargs)
                 
                 # Success - structured output completed
-                logger.info(f"✅ Structured output completed successfully with model: {self.current_model.get_config()['model_id']}")
+                logger.info(f"Structured output completed successfully with model: {self.current_model.get_config()['model_id']}")
                 return result
                 
             except ModelThrottledException as e:
                 self.switches_attempted += 1
                 current_model_id = self.current_model.get_config()['model_id']
-                logger.warning(f"🚨 Model {current_model_id} throttled during structured output (attempt {self.switches_attempted})")
+                logger.warning(f"Model {current_model_id} throttled during structured output (attempt {self.switches_attempted})")
                 
                 if self.switches_attempted > self.max_switches:
-                    logger.error(f"❌ Exceeded max model switches ({self.max_switches}) for structured output")
+                    logger.error(f"Exceeded max model switches ({self.max_switches}) for structured output")
                     raise Exception(f"All model switching attempts failed for structured output. Last error: {e}")
                 
                 # Put current model in cooldown
@@ -629,15 +644,15 @@ class SwitchingBedrockModel(Model):
                 if next_model:
                     # Switch to next model
                     self._switch_to_model(next_model)
-                    logger.warning(f"🔄 IMMEDIATE MODEL SWITCH for structured output: {current_model_id} → {next_model}")
+                    logger.warning(f"Immediate model switch for structured output: {current_model_id} -> {next_model}")
                     continue
                 
                 # No more models available
-                logger.error(f"❌ No alternative models available for structured output")
+                logger.error("No alternative models available for structured output")
                 raise Exception(f"No alternative models available for structured output. Last error: {e}")
             
             except Exception as e:
-                logger.warning(f"🚨 Non-throttling error during structured output with model {self.current_model.get_config()['model_id']}: {e}")
+                logger.exception(f"Non-throttling error during structured output with model {self.current_model.get_config()['model_id']}")
                 raise e
         
         raise Exception(f"Structured output failed after {self.switches_attempted} model switches")

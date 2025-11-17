@@ -13,71 +13,52 @@ import Flashbar from '@cloudscape-design/components/flashbar';
 import Badge from '@cloudscape-design/components/badge';
 import Cards from '@cloudscape-design/components/cards';
 import Icon from '@cloudscape-design/components/icon';
+import TextContent from '@cloudscape-design/components/text-content';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
-// SECURITY: Simple text validation - No HTML filtering needed since using safe React rendering
-const validateContent = (content) => {
+// Configure marked options for better rendering
+marked.setOptions({
+  breaks: true, // Convert line breaks to <br>
+  gfm: true, // GitHub Flavored Markdown
+  headerIds: false, // Disable header IDs for security
+  mangle: false, // Don't escape autolinked email addresses
+});
+
+// SECURITY: Enhanced markdown formatter with proper parsing and sanitization
+const formatMessage = (content) => {
   if (!content || typeof content !== 'string') {
     return '';
   }
-  
-  // Simple length and basic safety checks
+
+  // Validate content length
   if (content.length > 50000) {
-    return content.substring(0, 50000) + '... (truncated)';
-  }
-  
-  return content;
-};
-
-// SECURITY: Enhanced HTML escape function to prevent XSS attacks
-const escapeHtml = (unsafe) => {
-  if (!unsafe || typeof unsafe !== 'string') {
-    return unsafe;
-  }
-  
-  return unsafe
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;")
-    .replace(/\//g, "&#x2F;")
-    .replace(/\n/g, "&#10;")
-    .replace(/\r/g, "&#13;")
-    .replace(/\t/g, "&#9;");
-};
-
-// Enhanced markdown formatter for GenAI responses with HTML sanitization
-const formatMessage = (content) => {
-  if (!content || typeof content !== 'string') {
-    return content;
+    content = content.substring(0, 50000) + '... (truncated)';
   }
 
-  // SECURITY: Validate and sanitize content first
-  const validatedContent = validateContent(content);
-
-  // First escape all HTML to prevent XSS
-  let safeContent = escapeHtml(validatedContent);
-
-  // Then apply safe markdown formatting using escaped HTML
-  let formatted = safeContent
-    .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/^### (.*$)/gim, '<h4>$1</h4>')
-    .replace(/^## (.*$)/gim, '<h3>$1</h3>')
-    .replace(/^# (.*$)/gim, '<h2>$1</h2>')
-    .replace(/^\d+\.\s+(.*)$/gim, '<li>$1</li>')
-    .replace(/^[-*+]\s+(.*)$/gim, '<li>$1</li>')
-    .replace(/\n\n/g, '<br/><br/>')
-    .replace(/\n/g, '<br/>');
-
-  formatted = formatted
-    .replace(/(<li>.*?<\/li>)(<br\/>)*(?=<li>)/g, '$1')
-    .replace(/(<li>.*?<\/li>(?:<br\/>)*)+/g, '<ul>$&</ul>')
-    .replace(/<ul>(<li>.*?<\/li>(?:<br\/>)*)<\/ul>/g, '<ul>$1</ul>');
-
-  return formatted;
+  try {
+    // Parse markdown to HTML using marked
+    const rawHtml = marked.parse(content);
+    
+    // SECURITY: Sanitize HTML with DOMPurify to prevent XSS
+    const cleanHtml = DOMPurify.sanitize(rawHtml, {
+      ALLOWED_TAGS: [
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+        'p', 'br', 'strong', 'em', 'u', 's', 'code', 'pre',
+        'ul', 'ol', 'li', 'blockquote',
+        'table', 'thead', 'tbody', 'tr', 'th', 'td',
+        'a', 'img'
+      ],
+      ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title'],
+      ALLOW_DATA_ATTR: false
+    });
+    
+    return cleanHtml;
+  } catch (error) {
+    console.error('Error formatting markdown:', error);
+    // Fallback to escaped plain text if parsing fails
+    return DOMPurify.sanitize(content);
+  }
 };
 
 const ChatInterface = ({ 
@@ -409,7 +390,6 @@ const ChatInterface = ({
                   color="text-body-default"
                 >
                   <Box 
-                    variant="code"
                     style={{ 
                       lineHeight: '1.6',
                       wordBreak: 'break-word',
@@ -417,8 +397,16 @@ const ChatInterface = ({
                       whiteSpace: 'pre-wrap'
                     }}
                   >
-                    {/* SECURITY FIX: Use safe text rendering instead of dangerouslySetInnerHTML */}
-                    {item.content}
+                    {/* SECURITY: Using formatMessage which escapes HTML before applying markdown formatting */}
+                    {item.isUser ? (
+                      // User messages: render as plain text
+                      <Box variant="code">{item.content}</Box>
+                    ) : (
+                      // AI messages: render formatted markdown with Cloudscape TextContent component
+                      <TextContent>
+                        <div dangerouslySetInnerHTML={{ __html: formatMessage(item.content) }} />
+                      </TextContent>
+                    )}
                   </Box>
                 </Box>
               </Container>

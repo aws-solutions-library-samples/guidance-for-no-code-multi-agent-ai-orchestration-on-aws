@@ -5,7 +5,8 @@ from aws_cdk import (
     aws_ecs as ecs,
     aws_ec2 as ec2,
     aws_s3 as s3,
-    aws_ecr_assets as ecr_assets
+    aws_ecr_assets as ecr_assets,
+    aws_logs as logs
 )
 
 from helper.config import Config
@@ -123,14 +124,21 @@ class MultiAgentStack(FargateServiceStack):
         # Note: self.region is a read-only property from Stack, don't try to set it
         
         # Create CloudFormation parameter for agent name
-        # Preserve original agent name for SSM parameters and internal references
+        # No default value - must be explicitly provided during stack deployment
         self.agent_name_parameter = cdk.CfnParameter(
             self, "AgentName",
             type="String",
             description="Name of the agent instance (used for SSM configuration and environment variables)",
-            default=agent_name,
             allowed_pattern=r"^[a-z0-9_-]+$",
             constraint_description="Agent name must contain only lowercase letters, numbers, underscores, and hyphens"
+        )
+        
+        # Create CloudFormation parameter for Docker image tag  
+        # No default value - must be explicitly provided with proper SHA256 tag
+        self.image_tag_parameter = cdk.CfnParameter(
+            self, "ImageTag",
+            type="String",
+            description="Docker image tag for the agent container - must be full ECR URI with SHA256 hash"
         )
 
         # Get configuration values
@@ -150,7 +158,7 @@ class MultiAgentStack(FargateServiceStack):
         # This places ALB between VPC Lattice and ECS tasks to solve the 60-second timeout limitation
         # Use generic name for CDK construct IDs to make CloudFormation template reusable
         # CloudFormation parameter is used for actual AWS resource names and environment variables
-        resources = self.create_alb_vpc_lattice_fargate_service(
+        resources = self._create_agent_service_with_versioned_image(
             service_name="agent",  # Use static name for CDK construct IDs
             container_image_path=container_image_path,
             port=container_port,
@@ -161,7 +169,8 @@ class MultiAgentStack(FargateServiceStack):
             environment_vars=environment_vars,
             platform=ecr_assets.Platform.LINUX_ARM64,
             dockerfile_path=dockerfile_path,
-            vpc_lattice_service_name=self.agent_name_parameter.value_as_string  # Pass parameter for VPC Lattice service name
+            vpc_lattice_service_name=self.agent_name_parameter.value_as_string,  # Pass parameter for VPC Lattice service name
+            force_new_deployment=True  # Enable update button for CloudFormation stack updates
         )
         
         # Add Bedrock AgentCore Memory permissions to agent task definition
@@ -373,3 +382,134 @@ class MultiAgentStack(FargateServiceStack):
             import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"Failed to apply agent service permissions boundary: {str(e)}")
+    
+    def _create_agent_service_with_versioned_image(self, **kwargs) -> Dict:
+        """
+        Create agent service using a versioned ECR image reference instead of building from assets.
+        This enables proper version control and update triggering when the image tag changes.
+        
+        Args:
+            **kwargs: All arguments to pass to create_alb_vpc_lattice_fargate_service
+            
+        Returns:
+            Dictionary containing all created resources
+        """
+        from aws_cdk import aws_logs as logs
+        
+        # Extract parameters we need to handle specially
+        service_name = kwargs['service_name']
+        port = kwargs['port']
+        cpu = kwargs['cpu']
+        memory = kwargs['memory']
+        platform = kwargs.get('platform', ecr_assets.Platform.LINUX_ARM64)
+        environment_vars = kwargs.get('environment_vars', {})
+        health_check_path = kwargs.get('health_check_path', '/health')
+        desired_count = kwargs.get('desired_count', 1)
+        vpc_lattice_service_name = kwargs.get('vpc_lattice_service_name')
+        force_new_deployment = kwargs.get('force_new_deployment', False)
+        
+        # Create log group
+        log_group = self.create_log_group(f"{service_name}-service")
+        
+        # Create ALB resources
+        alb_resources = self._create_alb_resources_for_vpc_lattice(
+            service_name, port, health_check_path
+        )
+        
+        # Create VPC Lattice service
+        lattice_resources = self._create_vpc_lattice_service_for_alb(
+            service_name, alb_resources["load_balancer"],
+            health_check_path, vpc_lattice_service_name
+        )
+        
+        # Create task definition
+        task_definition = self._create_task_definition(
+            service_name, cpu, memory, platform
+        )
+        
+        # Add container with versioned image reference
+        container = self._add_versioned_container_to_task(
+            task_definition, service_name, port, log_group,
+            environment_vars, lattice_resources["service"].attr_dns_entry_domain_name
+        )
+        
+        # Create ECS service
+        ecs_service = self._create_alb_ecs_service(
+            service_name, task_definition, alb_resources["security_group"],
+            desired_count, alb_resources["target_group"], force_new_deployment
+        )
+        
+        # Configure IAM permissions
+        self._configure_alb_task_permissions(
+            task_definition, [log_group.log_group_arn]
+        )
+        
+        # Create CloudFormation output
+        self._create_service_output(service_name, lattice_resources["service"])
+        
+        # Add tags
+        self.add_common_tags(ecs_service, {
+            "ServiceName": service_name,
+            "ServiceType": "Fargate",
+            "LoadBalancer": "ALB",
+            "ServiceMesh": "VPCLattice"
+        })
+        
+        return {
+            "ecs_service": ecs_service,
+            "task_definition": task_definition,
+            "container": container,
+            "log_group": log_group,
+            **alb_resources,
+            **lattice_resources
+        }
+    
+    def _add_versioned_container_to_task(self,
+                                        task_definition: ecs.FargateTaskDefinition,
+                                        service_name: str,
+                                        port: int,
+                                        log_group: logs.LogGroup,
+                                        environment_vars: Dict[str, str],
+                                        lattice_dns: str) -> ecs.ContainerDefinition:
+        """
+        Add container to task definition using the ImageTag parameter.
+        
+        The ImageTag parameter will contain the full CDK-generated image URI including:
+        - CDK bootstrap ECR repository
+        - SHA256 hash tag
+        
+        This ensures each rebuild gets a unique hash, forcing ECS to pull the new image.
+        
+        Args:
+            task_definition: The task definition to add container to
+            service_name: Name of the service
+            port: Container port
+            log_group: Log group for container logs
+            environment_vars: Environment variables for the container
+            lattice_dns: VPC Lattice DNS name
+            
+        Returns:
+            The created container definition
+        """
+        env_vars = environment_vars or {}
+        env_vars["HOSTED_DNS"] = lattice_dns
+        env_vars["SERVICE_NAME"] = service_name
+        env_vars["ECS_CONTAINER_STOP_TIMEOUT"] = "2s"
+        
+        # Use the ImageTag parameter directly - it contains the full CDK image URI with SHA256 hash
+        # Example: 292226546026.dkr.ecr.us-east-1.amazonaws.com/cdk-hnb659fds-container-assets-292226546026-us-east-1:9f846af5ece47ba5acecb3e381d65441b31f7f0fbd03f513e4f9aabd427c8659
+        return task_definition.add_container(
+            f"{service_name}-container",
+            image=ecs.ContainerImage.from_registry(self.image_tag_parameter.value_as_string),
+            logging=ecs.LogDrivers.aws_logs(
+                log_group=log_group,
+                stream_prefix=f'{service_name}-service',
+                mode=ecs.AwsLogDriverMode.NON_BLOCKING
+            ),
+            port_mappings=[ecs.PortMapping(
+                container_port=port,
+                protocol=ecs.Protocol.TCP
+            )],
+            environment=env_vars,
+            stop_timeout=cdk.Duration.seconds(2)
+        )

@@ -165,7 +165,7 @@ async def get_agent_config(
         result = agent_service.load_agent_configuration(agent_name)
         
         # Convert result to dict for manipulation
-        config_dict = result.dict() if hasattr(result, 'dict') else dict(result)
+        config_dict = result.model_dump(mode='json') if hasattr(result, 'model_dump') else dict(result)
         
         return config_dict
 
@@ -735,6 +735,71 @@ async def create_system_prompt(
         raise HTTPException(status_code=500, detail="Internal server error occurred")
 
 
+@config_router.post('/update-deployment/{agent_name}')
+async def update_agent_deployment(
+    agent_name: str,
+    current_user: UserInfo = Depends(get_current_user),
+    _: None = Depends(RequirePermission("config:update"))
+) -> Dict[str, Any]:
+    """
+    Trigger CloudFormation stack update to force new ECS task deployment.
+    
+    This endpoint updates the CloudFormation stack for the agent, which will:
+    1. Force ECS to deploy new tasks with latest configuration
+    2. Maintain zero-downtime deployment
+    3. Pull latest container images if updated
+    
+    Args:
+        agent_name: Name of the agent to update deployment for
+        
+    Returns:
+        Dictionary with update status and stack information
+        
+    Raises:
+        HTTPException: If update fails or agent stack not found
+    """
+    try:
+        logger.info(f"Triggering deployment update for agent: {agent_name}")
+        
+        # Get deployment service
+        from ..services import DeploymentService
+        from ..utils.dependencies import get_deployment_service
+        
+        deployment_service = get_deployment_service()
+        
+        # Update the agent stack to force new deployment
+        update_result = await deployment_service.update_agent_stack(
+            agent_name=agent_name,
+            parameters=None  # Use existing parameters, just trigger update
+        )
+        
+        logger.info(f"Successfully triggered deployment update for agent: {agent_name}")
+        
+        return {
+            "status": "success",
+            "message": f"Deployment update initiated for agent '{agent_name}'",
+            "agent_name": agent_name,
+            "stack_name": update_result.get("stack_name"),
+            "stack_status": update_result.get("status"),
+            "details": update_result
+        }
+        
+    except ValueError as e:
+        # Agent stack not found
+        log_exception_safely(logger, e, f"Agent stack not found for '{agent_name}'")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No CloudFormation stack found for agent '{agent_name}'"
+        )
+    except Exception as e:
+        logger.error(f"Error updating deployment for agent '{agent_name}'")
+        log_exception_safely(logger, e, f"Error updating deployment for '{agent_name}'")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error during deployment update"
+        )
+
+
 @config_router.post('/refresh-agent/{agent_name}')
 async def refresh_agent_instances(
     agent_name: str,
@@ -819,7 +884,7 @@ async def refresh_agent_instances(
                     # Check if this agent matches our target
                     if current_agent_name == agent_name:
                         matching_agents_found += 1
-                        logger.info(f"✅ Found matching agent '{agent_name}' at {agent_url}, triggering refresh")
+                        logger.info(f"Found matching agent '{agent_name}' at {agent_url}, triggering refresh")
                         
                         # Call the agent's /config/load endpoint with its own name  
                         load_url = f"{agent_url.rstrip('/')}/config/load"
@@ -839,7 +904,7 @@ async def refresh_agent_instances(
                                 "timestamp": response_data.get("timestamp", "unknown")
                             }
                             successful_refreshes.append(agent_url)
-                            logger.info(f"✅ Successfully refreshed agent '{agent_name}' at {agent_url}")
+                            logger.info(f"Successfully refreshed agent '{agent_name}' at {agent_url}")
                             
                         else:
                             refresh_results[agent_url] = {
@@ -851,7 +916,7 @@ async def refresh_agent_instances(
                                 "timestamp": None
                             }
                             failed_refreshes.append({"url": agent_url, "reason": "refresh failed"})
-                            logger.error(f"❌ Agent '{agent_name}' at {agent_url} refresh failed")
+                            logger.error(f"Agent '{agent_name}' at {agent_url} refresh failed")
                     else:
                         # Agent doesn't match, skip it
                         refresh_results[agent_url] = {
@@ -861,7 +926,7 @@ async def refresh_agent_instances(
                             "checked": True,
                             "matches_target": False
                         }
-                        logger.info(f"⏭️ Agent '{current_agent_name}' at {agent_url} does not match target '{agent_name}', skipped")
+                        logger.info(f"Agent '{current_agent_name}' at {agent_url} does not match target '{agent_name}', skipped")
                         
                 except httpx.TimeoutException as e:
                     log_exception_safely(logger, e, f"Timeout checking agent at {agent_url}")
@@ -873,7 +938,7 @@ async def refresh_agent_instances(
                         "error": "Request timeout after 30 seconds"
                     }
                     failed_refreshes.append({"url": agent_url, "reason": "timeout"})
-                    logger.error(f"⏰ Agent at {agent_url} timed out")
+                    logger.error(f"Agent at {agent_url} timed out")
                     
                 except httpx.RequestError as e:
                     log_exception_safely(logger, e, f"Request error checking agent at {agent_url}")

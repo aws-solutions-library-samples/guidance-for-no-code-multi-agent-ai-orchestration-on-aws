@@ -80,13 +80,18 @@ class SecureLogger:
     
     @staticmethod
     def hash_sensitive_value(value: str) -> str:
-        """Create a hash of sensitive value for logging."""
+        """Create a hash of sensitive value for logging purposes only (not password hashing).
+        
+        Note: This is for logging obfuscation, not password security.
+        For password hashing, use bcrypt, scrypt, or Argon2.
+        """
         if not value:
             return ""
         
-        # Use SHA-256 for consistent hashing
+        # Use SHA-256 for logging obfuscation only (NOT password hashing)
+        # This is appropriate for configuration/endpoint obfuscation in logs
         hash_obj = hashlib.sha256(value.encode('utf-8'))
-        return hash_obj.hexdigest()[:16]  # First 16 characters
+        return hash_obj.hexdigest()[:16]  # First 16 characters for logging
     
     @staticmethod
     def create_safe_context_info(context_data: Dict[str, Any]) -> Dict[str, str]:

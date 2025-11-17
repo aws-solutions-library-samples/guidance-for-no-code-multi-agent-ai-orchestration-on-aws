@@ -37,6 +37,10 @@ class AgentConfigService:
         """
         Save agent configuration including system prompt and settings.
         
+        CRITICAL: This method preserves existing configuration data when editing.
+        When updating an existing agent, it merges new data with existing data to prevent
+        loss of configurations that weren't modified in the current request.
+        
         Args:
             config_request: Agent configuration request data
             
@@ -65,9 +69,109 @@ class AgentConfigService:
                 if not success:
                     raise Exception("Failed to store system prompt")
 
-            # Prepare configuration data (excluding system prompt content)
-            config_data = config_request.dict()
-            config_data.pop('system_prompt', None)  # Remove prompt content from config
+            # CRITICAL FIX: Load existing configuration to preserve data during edits
+            existing_config = self._get_agent_config(agent_name)
+            
+            # Prepare new configuration data (excluding system prompt content)
+            # Use model_dump() for Pydantic v2 with proper nested model serialization
+            new_config_data = config_request.model_dump(mode='json', exclude_none=True)
+            new_config_data.pop('system_prompt', None)  # Remove prompt content from config
+            
+            # Normalize cache_prompt and cache_tools values to valid enum values
+            # UI may send 'default' which needs to be converted to 'False'
+            if new_config_data.get('cache_prompt') == 'default':
+                new_config_data['cache_prompt'] = 'False'
+                logger.info(f"Normalized cache_prompt from 'default' to 'False'")
+            
+            if new_config_data.get('cache_tools') == 'default':
+                new_config_data['cache_tools'] = 'False'
+                logger.info(f"Normalized cache_tools from 'default' to 'False'")
+
+            # CRITICAL FIX: Merge new data with existing data to preserve unmodified fields
+            if existing_config:
+                logger.info(f"Merging with existing configuration for agent: {agent_name}")
+                
+                # Start with existing config as base
+                merged_config = existing_config.copy()
+                
+                # Component types that have provider_details pattern
+                component_types = ['memory', 'knowledge_base', 'observability', 'guardrail']
+                
+                # Track which components have existing configurations
+                components_to_preserve = {}
+                for component_type in component_types:
+                    details_key = f"{component_type}_details" if component_type == 'knowledge_base' else f"{component_type}_provider_details"
+                    existing_details = existing_config.get(details_key, [])
+                    
+                    # Check if this component has meaningful existing configuration
+                    if isinstance(existing_details, list) and len(existing_details) > 0:
+                        # Check if any provider has non-empty config
+                        has_config = any(
+                            isinstance(provider, dict) and 
+                            isinstance(provider.get('config', {}), dict) and 
+                            len(provider.get('config', {})) > 0 
+                            for provider in existing_details
+                        )
+                        
+                        if has_config:
+                            components_to_preserve[component_type] = {
+                                'details_key': details_key,
+                                'enabled_key': component_type,
+                                'provider_key': f"{component_type}_provider",
+                                'existing_details': existing_details,
+                                'existing_enabled': existing_config.get(component_type, 'False'),
+                                'existing_provider': existing_config.get(f"{component_type}_provider", 'default')
+                            }
+                            logger.info(f"Component '{component_type}' has existing configuration to potentially preserve")
+                
+                # Update with new values
+                for key, value in new_config_data.items():
+                    # Check if this is a component field that should be preserved
+                    should_preserve = False
+                    
+                    for component_type, preserve_info in components_to_preserve.items():
+                        # Check if this key belongs to a component with existing config
+                        if key == preserve_info['details_key']:
+                            # If new value is empty list, preserve existing details
+                            if isinstance(value, list) and len(value) == 0:
+                                logger.info(f"Preserving existing {key} (has {len(preserve_info['existing_details'])} items)")
+                                should_preserve = True
+                                break
+                        
+                        # Also preserve the enabled flag if details are being preserved
+                        elif key == preserve_info['enabled_key']:
+                            new_details = new_config_data.get(preserve_info['details_key'], [])
+                            if isinstance(new_details, list) and len(new_details) == 0:
+                                # New request has empty details, check if we should preserve
+                                if value in ['False', 'false', False, 'No', 'default']:
+                                    logger.info(f"Preserving existing {key} enabled status: {preserve_info['existing_enabled']}")
+                                    merged_config[key] = preserve_info['existing_enabled']
+                                    should_preserve = True
+                                    break
+                        
+                        # Also preserve the provider name if details are being preserved
+                        elif key == preserve_info['provider_key']:
+                            new_details = new_config_data.get(preserve_info['details_key'], [])
+                            if isinstance(new_details, list) and len(new_details) == 0:
+                                if value in ['default', 'No', 'no']:
+                                    logger.info(f"Preserving existing {key}: {preserve_info['existing_provider']}")
+                                    merged_config[key] = preserve_info['existing_provider']
+                                    should_preserve = True
+                                    break
+                    
+                    # If we should preserve this field, skip the update
+                    if should_preserve:
+                        continue
+                    
+                    # Otherwise, update the field with new value
+                    merged_config[key] = value
+                
+                config_data = merged_config
+                logger.info(f"Configuration merged successfully, preserved {len(components_to_preserve)} component configurations")
+            else:
+                # New agent - use new config as-is
+                config_data = new_config_data
+                logger.info(f"Creating new configuration for agent: {agent_name}")
 
             # Store main configuration
             success = self._store_agent_config(agent_name, config_data)
@@ -112,10 +216,8 @@ class AgentConfigService:
             if config_data is None:
                 raise Exception(f"Agent '{agent_name}' not found")
 
-            logger.info(f"DEBUG CONFIG LOAD: Raw config data from SSM: {config_data}")
-            logger.info(f"DEBUG CONFIG LOAD: Data types in SSM config:")
-            for key, value in config_data.items():
-                logger.info(f"  {key}: {type(value).__name__} = {value}")
+            logger.debug("Raw config data loaded from SSM")
+            logger.debug(f"Data types in SSM config: {list(config_data.keys())}")
 
             # Retrieve system prompt if specified
             system_prompt_name = config_data.get('system_prompt_name', '')
@@ -136,9 +238,116 @@ class AgentConfigService:
             if 'mcp_servers' not in config_data:
                 config_data['mcp_servers'] = ""
 
-            logger.info(f"DEBUG CONFIG LOAD: Final config data before Pydantic model:")
-            for key, value in config_data.items():
-                logger.info(f"  {key}: {type(value).__name__} = {value}")
+            # Convert nested dictionaries to Pydantic models
+            # This ensures proper deserialization of complex nested structures
+            from ..models.agent_config import ThinkingConfig, ProviderConfig, ToolConfig
+            
+            # Helper function to safely convert nested structures
+            def convert_to_provider_config(item):
+                """Safely convert item to ProviderConfig, handling various input types."""
+                if isinstance(item, dict):
+                    return ProviderConfig(**item)
+                elif isinstance(item, ProviderConfig):
+                    return item
+                else:
+                    logger.warning(f"Unexpected provider config type: {type(item)}, item: {item}")
+                    # Try to handle string or other types gracefully
+                    if isinstance(item, str):
+                        return ProviderConfig(name=item, config={})
+                    return item
+            
+            def convert_to_tool_config(item):
+                """Safely convert item to ToolConfig, handling various input types."""
+                if isinstance(item, dict):
+                    return ToolConfig(**item)
+                elif isinstance(item, ToolConfig):
+                    return item
+                else:
+                    logger.warning(f"Unexpected tool config type: {type(item)}, item: {item}")
+                    if isinstance(item, str):
+                        return ToolConfig(name=item, config={})
+                    return item
+            
+            # Convert thinking config - handle missing or invalid data
+            if 'thinking' in config_data:
+                if isinstance(config_data['thinking'], dict):
+                    config_data['thinking'] = ThinkingConfig(**config_data['thinking'])
+                elif not isinstance(config_data['thinking'], ThinkingConfig):
+                    logger.warning(f"Invalid thinking config type: {type(config_data['thinking'])}, using default")
+                    config_data['thinking'] = ThinkingConfig(type="standard", budget_tokens=100000)
+            else:
+                config_data['thinking'] = ThinkingConfig(type="standard", budget_tokens=100000)
+            
+            # Convert tools list - handle empty, None, or invalid data
+            if 'tools' in config_data:
+                if isinstance(config_data['tools'], list):
+                    config_data['tools'] = [convert_to_tool_config(tool) for tool in config_data['tools']]
+                elif config_data['tools'] is None:
+                    config_data['tools'] = []
+                else:
+                    logger.warning(f"Invalid tools type: {type(config_data['tools'])}, using empty list")
+                    config_data['tools'] = []
+            else:
+                config_data['tools'] = []
+            
+            # Convert memory provider details - handle all cases
+            if 'memory_provider_details' in config_data:
+                if isinstance(config_data['memory_provider_details'], list):
+                    config_data['memory_provider_details'] = [
+                        convert_to_provider_config(provider) for provider in config_data['memory_provider_details']
+                    ]
+                elif config_data['memory_provider_details'] is None:
+                    config_data['memory_provider_details'] = []
+                else:
+                    logger.warning(f"Invalid memory_provider_details type: {type(config_data['memory_provider_details'])}")
+                    config_data['memory_provider_details'] = []
+            else:
+                config_data['memory_provider_details'] = []
+            
+            # Convert knowledge base details - handle all cases
+            if 'knowledge_base_details' in config_data:
+                if isinstance(config_data['knowledge_base_details'], list):
+                    config_data['knowledge_base_details'] = [
+                        convert_to_provider_config(provider) for provider in config_data['knowledge_base_details']
+                    ]
+                elif config_data['knowledge_base_details'] is None:
+                    config_data['knowledge_base_details'] = []
+                else:
+                    logger.warning(f"Invalid knowledge_base_details type: {type(config_data['knowledge_base_details'])}")
+                    config_data['knowledge_base_details'] = []
+            else:
+                config_data['knowledge_base_details'] = []
+            
+            # Convert observability provider details - handle all cases
+            if 'observability_provider_details' in config_data:
+                if isinstance(config_data['observability_provider_details'], list):
+                    config_data['observability_provider_details'] = [
+                        convert_to_provider_config(provider) for provider in config_data['observability_provider_details']
+                    ]
+                elif config_data['observability_provider_details'] is None:
+                    config_data['observability_provider_details'] = []
+                else:
+                    logger.warning(f"Invalid observability_provider_details type: {type(config_data['observability_provider_details'])}")
+                    config_data['observability_provider_details'] = []
+            else:
+                config_data['observability_provider_details'] = []
+            
+            # Convert guardrail provider details - handle all cases
+            if 'guardrail_provider_details' in config_data:
+                if isinstance(config_data['guardrail_provider_details'], list):
+                    config_data['guardrail_provider_details'] = [
+                        convert_to_provider_config(provider) for provider in config_data['guardrail_provider_details']
+                    ]
+                elif config_data['guardrail_provider_details'] is None:
+                    config_data['guardrail_provider_details'] = []
+                else:
+                    logger.warning(f"Invalid guardrail_provider_details type: {type(config_data['guardrail_provider_details'])}")
+                    config_data['guardrail_provider_details'] = []
+            else:
+                config_data['guardrail_provider_details'] = []
+
+            logger.debug("Final config data converted to Pydantic models")
+            logger.debug(f"Available config fields: {list(config_data.keys())}")
 
             logger.info(f"Successfully loaded configuration for agent: {agent_name}")
             return AgentConfigResponse(**config_data)
@@ -461,7 +670,7 @@ class AgentConfigService:
                 # Don't fail silently - log the error but still attempt to store for backward compatibility
                 logger.warning(f"Storing potentially incomplete configuration for {agent_name}")
             else:
-                logger.info(f"✅ Configuration validation passed for {agent_name} - conforms to SSM data model")
+                logger.info(f"Configuration validation passed for {agent_name} - conforms to SSM data model")
             
             # Use standardized path from SSM parameter paths
             config_path = SSMParameterPaths.agent_config(agent_name)
@@ -877,7 +1086,8 @@ Guidelines:
                 raise Exception(f"Agent '{agent_name}' configuration not found")
 
             # Update only the tools field
-            current_config['tools'] = [tool.dict() for tool in tools_request.tools]
+            # Use model_dump() for Pydantic v2 with proper nested model serialization
+            current_config['tools'] = [tool.model_dump(mode='json') for tool in tools_request.tools]
 
             # Store updated configuration
             success = self._store_agent_config(agent_name, current_config)
