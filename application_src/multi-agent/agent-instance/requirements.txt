@@ -1,8 +1,12 @@
-# Core Strands Agent Dependencies
-git+https://github.com/strands-agents/sdk-python.git
+# Core Strands Agent Dependencies - using PyPI versions
+strands-agents
 strands-agents-tools
-git+https://github.com/strands-agents/sdk-python.git#egg=strands-agents[a2a]
 strands-agents-tools[a2a_client]
+
+# Web Framework (required by base_agent_service.py)
+fastapi
+uvicorn
+pydantic
 
 # HTTP Client
 httpx[http2]>=0.24.0

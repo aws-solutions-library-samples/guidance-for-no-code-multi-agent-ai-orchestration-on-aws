@@ -448,6 +448,72 @@ class BaseObservabilityProvider(ABC):
         """Override in subclasses for provider-specific cleanup."""
         pass
     
+    def _log_endpoint_securely(self, label: str, endpoint: str) -> None:
+        """
+        Log API endpoint securely by masking sensitive information.
+        
+        Args:
+            label: A descriptive label for the endpoint being logged
+            endpoint: The API endpoint URL to log securely
+        """
+        try:
+            if not endpoint:
+                logging.info(f"   {label}: [EMPTY_ENDPOINT]")
+                return
+            
+            # Parse URL and mask sensitive parameters
+            from urllib.parse import urlparse, parse_qs, urlunparse
+            import re
+            
+            parsed = urlparse(endpoint)
+            if not parsed.scheme or not parsed.netloc:
+                logging.info(f"   {label}: [INVALID_ENDPOINT]")
+                return
+            
+            # Create base URL (scheme + netloc + path)
+            safe_endpoint = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            
+            # Handle query parameters - mask sensitive ones
+            if parsed.query:
+                try:
+                    query_params = parse_qs(parsed.query, keep_blank_values=True)
+                    safe_params = []
+                    
+                    for key, values in query_params.items():
+                        # List of common sensitive parameter names
+                        sensitive_params = [
+                            'api_key', 'apikey', 'api-key', 'dd-api-key', 
+                            'token', 'auth', 'authorization', 'key', 'secret',
+                            'password', 'pass', 'pwd', 'credential', 'cred'
+                        ]
+                        
+                        if key.lower() in sensitive_params:
+                            safe_params.append(f"{key}=[REDACTED]")
+                        else:
+                            # For non-sensitive params, show the values
+                            value_str = ','.join(str(v) for v in values)
+                            safe_params.append(f"{key}={value_str}")
+                    
+                    if safe_params:
+                        safe_endpoint += "?" + "&".join(safe_params)
+                        
+                except Exception:
+                    # If parsing fails, just indicate that query params were masked
+                    safe_endpoint += "?[QUERY_PARAMS_MASKED]"
+            
+            # Also mask sensitive patterns in the path itself
+            safe_endpoint = re.sub(
+                r'/(api[_-]?key|token|auth|secret)/[^/?#]+',
+                r'/\1/[REDACTED]',
+                safe_endpoint,
+                flags=re.IGNORECASE
+            )
+            
+            logging.info(f"   {label}: {safe_endpoint}")
+            
+        except Exception as e:
+            logging.info(f"   {label}: [ENDPOINT_LOGGING_ERROR: {str(e)}]")
+
     def get_provider_config(self) -> Dict[str, Any]:
         """Get the provider configuration."""
         for provider in self.provider_details:

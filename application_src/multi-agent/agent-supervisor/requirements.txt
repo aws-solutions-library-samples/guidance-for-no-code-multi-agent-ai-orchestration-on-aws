@@ -1,7 +1,6 @@
-# Core agent framework
-git+https://github.com/strands-agents/sdk-python.git
+# Core agent framework - using PyPI versions
+strands-agents
 strands-agents-tools
-git+https://github.com/strands-agents/sdk-python.git#egg=strands-agents[a2a]
 strands-agents-tools[a2a_client]
 
 # High-performance HTTP client
