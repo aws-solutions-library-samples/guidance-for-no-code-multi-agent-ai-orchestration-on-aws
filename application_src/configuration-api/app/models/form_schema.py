@@ -754,22 +754,29 @@ class FormSchemaRegistry:
             "dynatrace": ProviderFormSchema(
                 provider_name="dynatrace",
                 provider_label="Dynatrace",
-                description="Full-stack observability platform",
+                description="Full-stack observability platform with ADOT OTLP integration and enhanced LLM tracing via Traceloop SDK",
                 fields=[
                     FormField(
-                        name="environment_url",
+                        name="otlp_endpoint",
                         type=FieldType.URL,
-                        label="Dynatrace Environment URL",
-                        placeholder="https://your-environment.live.dynatrace.com",
-                        help_text="Your Dynatrace environment URL",
-                        required=True
+                        label="Dynatrace OTLP Endpoint", 
+                        placeholder="https://abc12345.live.dynatrace.com/api/v2/otlp",
+                        help_text="Your Dynatrace OTLP endpoint URL (found in Dynatrace console under Settings > Integration > OpenTelemetry)",
+                        required=True,
+                        validation=[
+                            ValidationRule(
+                                type="pattern",
+                                value=r"^https://.*\.live\.dynatrace\.com/api/v2/otlp$",
+                                message="Must be a valid Dynatrace OTLP endpoint URL"
+                            )
+                        ]
                     ),
                     FormField(
-                        name="api_token",
+                        name="dt_token",
                         type=FieldType.PASSWORD,
                         label="Dynatrace API Token",
                         placeholder="Enter Dynatrace API token",
-                        help_text="API token with appropriate permissions",
+                        help_text="API token with 'Ingest metrics', 'Ingest logs', and 'Ingest traces' permissions",
                         required=True,
                         secure=True
                     )
@@ -822,14 +829,14 @@ class FormSchemaRegistry:
             "datadog": ProviderFormSchema(
                 provider_name="datadog",
                 provider_label="Datadog",
-                description="Complete Datadog observability platform using official ddtrace library - supports traces, logs, metrics, and specialized LLM observability for AI applications",
+                description="Complete Datadog observability with ADOT + ddtrace auto-instrumentation - automatic traces, logs, metrics, and LLM observability for AI applications",
                 fields=[
                     FormField(
                         name="api_key",
                         type=FieldType.PASSWORD,
                         label="Datadog API Key",
                         placeholder="Enter Datadog API key",
-                        help_text="Your Datadog API key for authentication",
+                        help_text="Your Datadog API key for authentication - enables automatic telemetry collection",
                         required=True,
                         secure=True
                     ),
@@ -846,34 +853,24 @@ class FormSchemaRegistry:
                             SelectOption(value="us5.datadoghq.com", label="US5 (us5.datadoghq.com)"),
                             SelectOption(value="datadoghq.eu", label="EU (datadoghq.eu)"),
                             SelectOption(value="ap1.datadoghq.com", label="AP1 (ap1.datadoghq.com)"),
-                            SelectOption(value="ap2.datadoghq.com", label="AP2 (ap2.datadoghq.com)"),
-                            SelectOption(value="us1-fed.datadoghq.com", label="US1-FED (us1-fed.datadoghq.com)")
+                            SelectOption(value="ddog-gov.com", label="US1-FED (ddog-gov.com)")
                         ]
                     ),
                     FormField(
                         name="environment",
                         type=FieldType.TEXT,
-                        label="Environment (Optional)",
+                        label="Environment Tag",
                         placeholder="production",
-                        help_text="Environment tag for organizing your services (e.g., production, staging, development)",
+                        help_text="Environment tag for organizing services (e.g., production, staging, development)",
                         required=False,
                         default_value="production"
                     ),
                     FormField(
-                        name="service_name",
-                        type=FieldType.TEXT,
-                        label="Service Name (Optional)",
-                        placeholder="Leave empty to use agent name",
-                        help_text="Custom service name for Datadog (defaults to agent name if not specified)",
-                        required=False,
-                        default_value=""
-                    ),
-                    FormField(
                         name="version",
                         type=FieldType.TEXT,
-                        label="Service Version (Optional)",
+                        label="Service Version",
                         placeholder="1.0.0",
-                        help_text="Version tag for tracking deployments and releases",
+                        help_text="Version tag for deployment tracking and releases",
                         required=False,
                         default_value="1.0.0"
                     ),
@@ -881,7 +878,7 @@ class FormSchemaRegistry:
                         name="enable_llm_obs",
                         type=FieldType.CHECKBOX,
                         label="Enable LLM Observability",
-                        help_text="Enable specialized AI/ML observability for LLM interactions, prompt tracking, and cost analysis",
+                        help_text="Enable Datadog LLM Observability for automatic tracking of LLM interactions, costs, and performance",
                         required=False,
                         default_value=True
                     ),
@@ -889,7 +886,7 @@ class FormSchemaRegistry:
                         name="enable_logs",
                         type=FieldType.CHECKBOX,
                         label="Enable Log Collection",
-                        help_text="Enable direct log submission to Datadog with automatic trace correlation",
+                        help_text="Enable automatic log collection with trace correlation",
                         required=False,
                         default_value=True
                     ),
@@ -897,8 +894,8 @@ class FormSchemaRegistry:
                         name="tags",
                         type=FieldType.TEXTAREA,
                         label="Additional Tags (Optional)",
-                        placeholder="service:genai-agent\nteam:ai-platform\nversion:1.0.0",
-                        help_text="Additional tags for organizing metrics and logs (one tag per line, format: key:value)",
+                        placeholder="team:ai-platform\nproject:genai-box\ncost-center:engineering",
+                        help_text="Additional tags for organizing telemetry (one per line, format: key:value)",
                         required=False,
                         rows=3
                     )

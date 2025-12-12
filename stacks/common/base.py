@@ -1111,10 +1111,8 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
         # Attach the service to the target group
         service.attach_to_application_target_group(target_group)
         
-        # Set force_new_deployment on the underlying CFN resource if enabled
-        if force_new_deployment:
-            cfn_service = service.node.default_child
-            cfn_service.force_new_deployment = True
+        # Note: force_new_deployment parameter removed due to CloudFormation validation issues
+        # Stack updates will still trigger redeployment when task definition changes
         
         return service
     
@@ -1276,14 +1274,17 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
                 resource_type="ALBVPCLatticeFargateService"
             )
     
-    def _create_alb_resources_for_vpc_lattice(self, service_name: str, port: int, health_check_path: str) -> Dict[str, Any]:
+    def _create_alb_resources_for_vpc_lattice(self, service_name: str, port: int, health_check_path: str, aws_service_name: Optional[str] = None) -> Dict[str, Any]:
         """Create ALB resources optimized for VPC Lattice integration."""
+        # Use aws_service_name for actual AWS resource names if provided
+        actual_service_name = aws_service_name if aws_service_name else service_name
+        
         # Create security group for ALB (allows ingress from VPC Lattice)
         alb_security_group = ec2.SecurityGroup(
             self,
             f"{service_name}-alb-security-group",
             vpc=self.vpc,
-            description=f"Security group for {service_name} ALB (VPC Lattice integration)",
+            description=f"Security group for {actual_service_name} ALB (VPC Lattice integration)",
             allow_all_outbound=True
         )
         
@@ -1300,7 +1301,7 @@ class FargateServiceStack(BaseStack, VpcLatticeServiceMixin, SecurityGroupMixin,
             self,
             f"{service_name}-ecs-security-group", 
             vpc=self.vpc,
-            description=f"Security group for {service_name} ECS tasks (ALB targets)",
+            description=f"Security group for {actual_service_name} ECS tasks (ALB targets)",
             allow_all_outbound=True
         )
         

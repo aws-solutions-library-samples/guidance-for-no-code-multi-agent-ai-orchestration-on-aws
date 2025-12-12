@@ -95,62 +95,29 @@ class BaseObservabilityProvider(ABC):
         """Initialize the observability provider and get the trace attributes."""
         pass
     
-    def process_strands_metrics(self, agent_result, service_name: str, environment: str):
+    def enable_auto_instrumentation(self, service_name: str, environment: str):
         """
-        Process metrics from Strands AgentResult using common extraction + provider-specific sending.
+        Enable complete auto-instrumentation for Strands SDK.
+        ADOT + Strands[otel] handles all metrics/logs/traces automatically.
         
         Args:
-            agent_result: The AgentResult object returned by Strands Agent
-            service_name: Service name for tagging/identification
-            environment: Environment name for tagging/identification
+            service_name: Service name for identification
+            environment: Environment name for identification
         """
-        # CRITICAL: Only process if this provider is currently active
-        if not self._validate_provider_is_active():
-            logging.debug(f"Skipping metrics processing for inactive {self.provider_name} provider")
-            return
-            
-        try:
-            if not hasattr(agent_result, 'metrics'):
-                print("ℹ️ No metrics found in AgentResult")
-                return
-            
-            print(f"📊 Processing Strands metrics for {self.provider_name}...")
-            
-            # Extract metrics using common logic
-            metrics_data = self._extract_strands_metrics(agent_result.metrics, service_name, environment)
-            
-            # Send using provider-specific implementation
-            self._send_metrics(metrics_data, service_name, environment)
-            
-            print(f"🎯 Strands metrics successfully forwarded to {self.provider_name}!")
-            
-        except Exception as e:
-            print(f"⚠️ Error processing Strands metrics for {self.provider_name}: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def configure_strands_logging(self, service_name: str, environment: str):
-        """Configure Strands SDK logging using common handler + provider-specific emission."""
         # CRITICAL: Only configure if this provider is currently active
         if not self._validate_provider_is_active():
-            logging.debug(f"Skipping logging configuration for inactive {self.provider_name} provider")
+            logging.debug(f"Skipping auto-instrumentation for inactive {self.provider_name} provider")
             return
             
         try:
-            print(f"📝 Configuring Strands SDK logging for {self.provider_name}...")
-            
-            # Create common handler with provider-specific emission
-            handler = self._create_strands_log_handler(service_name, environment)
-            
-            # Add handler to Strands root logger
-            strands_logger = logging.getLogger("strands")
-            strands_logger.addHandler(handler)
-            strands_logger.setLevel(logging.INFO)
-            
-            print(f"✅ Strands SDK logging configured for {self.provider_name}")
+            print(f"🤖 Enabling complete auto-instrumentation for {self.provider_name}...")
+            print("   📊 Strands metrics → ADOT → Provider endpoint (automatic)")
+            print("   📝 Strands logs → ADOT → Provider endpoint (automatic)")  
+            print("   🔍 Strands traces → ADOT → Provider endpoint (automatic)")
+            print(f"✅ Auto-instrumentation active for {self.provider_name} - no manual intervention needed!")
             
         except Exception as e:
-            print(f"⚠️ Error configuring Strands logging for {self.provider_name}: {e}")
+            print(f"⚠️ Error enabling auto-instrumentation for {self.provider_name}: {e}")
     
     @abstractmethod
     def get_strands_tracer_config(self, service_name: str, environment: str) -> Dict[str, Any]:
@@ -342,8 +309,134 @@ class BaseObservabilityProvider(ABC):
             return self.initialize()
         return self.trace_attributes
     
+    def _initialize_adot_programmatically(self, provider_endpoints: Dict[str, str], 
+                                        auth_headers: Dict[str, str], 
+                                        resource_attributes: Dict[str, Any] = None):
+        """
+        DRY method to activate ADOT programmatically for any provider.
+        No CLI dependency - pure Python code activation.
+        
+        Args:
+            provider_endpoints: Dict with keys 'traces', 'metrics', 'logs' and their endpoint URLs
+            auth_headers: Dict with authentication headers (supports 'all' or specific per type)
+            resource_attributes: Additional resource attributes for service identification
+        """
+        try:
+            print(f"🚀 Activating ADOT programmatically for {self.provider_name}...")
+            
+            # 1. Set ADOT core environment variables for programmatic activation
+            os.environ["OTEL_PYTHON_DISTRO"] = "aws_distro"
+            os.environ["OTEL_PYTHON_CONFIGURATOR"] = "aws_configurator"
+            
+            # 2. Configure provider-specific endpoints
+            for telemetry_type, endpoint in provider_endpoints.items():
+                env_var = f"OTEL_EXPORTER_OTLP_{telemetry_type.upper()}_ENDPOINT"
+                os.environ[env_var] = endpoint
+                print(f"   {env_var}: {endpoint}")
+            
+            # 3. Set authentication headers (supports both unified and per-type)
+            if "all" in auth_headers:
+                os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = auth_headers["all"]
+                print("   OTEL_EXPORTER_OTLP_HEADERS: ✅ Configured")
+            
+            for telemetry_type, header in auth_headers.items():
+                if telemetry_type != "all":
+                    env_var = f"OTEL_EXPORTER_OTLP_{telemetry_type.upper()}_HEADERS"
+                    os.environ[env_var] = header
+                    print(f"   {env_var}: ✅ Configured")
+            
+            # 4. Set protocol to http/protobuf (ADOT default)
+            os.environ["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] = "http/protobuf"
+            os.environ["OTEL_EXPORTER_OTLP_METRICS_PROTOCOL"] = "http/protobuf"
+            os.environ["OTEL_EXPORTER_OTLP_LOGS_PROTOCOL"] = "http/protobuf"
+            
+            # 5. Enable logs auto-instrumentation
+            os.environ["OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED"] = "true"
+            
+            # 6. Set up resource attributes
+            service_name, service_version = self._get_service_info()
+            base_attributes = {
+                "service.name": service_name,
+                "service.version": service_version,
+                "deployment.environment": os.environ.get('ENVIRONMENT', 'production')
+            }
+            
+            # Add provider-specific resource attributes
+            if resource_attributes:
+                base_attributes.update(resource_attributes)
+            
+            # Convert to OTEL format
+            resource_attr_str = ",".join([f"{k}={v}" for k, v in base_attributes.items()])
+            os.environ["OTEL_RESOURCE_ATTRIBUTES"] = resource_attr_str
+            print(f"   OTEL_RESOURCE_ATTRIBUTES: {resource_attr_str}")
+            
+            # 7. Activate ADOT auto-instrumentation programmatically (replaces CLI!)
+            print("🔧 Activating ADOT auto-instrumentation...")
+            try:
+                from opentelemetry.instrumentation.auto_instrumentation import sitecustomize
+                sitecustomize.initialize()
+                print("✅ ADOT auto-instrumentation activated programmatically")
+            except ImportError:
+                print("⚠️  ADOT auto-instrumentation not available, falling back to manual setup")
+                # Fallback to manual instrumentation activation
+                self._activate_manual_instrumentation()
+            
+            print(f"🎉 ADOT fully activated for {self.provider_name} - all 3 pillars ready!")
+            
+        except Exception as adot_error:
+            print(f"❌ ADOT activation failed for {self.provider_name}: {adot_error}")
+            import traceback
+            traceback.print_exc()
+            raise
+    
+    def _activate_manual_instrumentation(self):
+        """Fallback manual instrumentation activation if auto-instrumentation not available."""
+        try:
+            print("🔧 Activating manual instrumentation as fallback...")
+            
+            # Key instrumentations for AI agents
+            instrumentation_modules = [
+                "opentelemetry.instrumentation.botocore",
+                "opentelemetry.instrumentation.boto3sqs", 
+                "opentelemetry.instrumentation.httpx",
+                "opentelemetry.instrumentation.requests",
+                "opentelemetry.instrumentation.logging",
+                "opentelemetry.instrumentation.system_metrics"
+            ]
+            
+            activated_count = 0
+            for module_name in instrumentation_modules:
+                try:
+                    module = __import__(module_name, fromlist=[''])
+                    if hasattr(module, 'BotocoreInstrumentor'):
+                        module.BotocoreInstrumentor().instrument()
+                        activated_count += 1
+                    elif hasattr(module, 'Boto3SQSInstrumentor'):
+                        module.Boto3SQSInstrumentor().instrument()
+                        activated_count += 1
+                    elif hasattr(module, 'HTTPXClientInstrumentor'):
+                        module.HTTPXClientInstrumentor().instrument()
+                        activated_count += 1
+                    elif hasattr(module, 'RequestsInstrumentor'):
+                        module.RequestsInstrumentor().instrument()
+                        activated_count += 1
+                    elif hasattr(module, 'LoggingInstrumentor'):
+                        module.LoggingInstrumentor().instrument()
+                        activated_count += 1
+                    elif hasattr(module, 'SystemMetricsInstrumentor'):
+                        module.SystemMetricsInstrumentor().instrument()
+                        activated_count += 1
+                except ImportError:
+                    continue  # Skip unavailable instrumentations
+                    
+            print(f"✅ Activated {activated_count} manual instrumentations")
+            
+        except Exception as fallback_error:
+            print(f"⚠️  Manual instrumentation fallback failed: {fallback_error}")
+    
     def _initialize_opentelemetry_common(self, otlp_config: Dict[str, Any]):
-        """Common OpenTelemetry initialization - eliminates duplication across providers."""
+        """Legacy method - use _initialize_adot_programmatically instead."""
+        print("⚠️  Using legacy OpenTelemetry initialization. Consider migrating to ADOT.")
         try:
             from opentelemetry import trace
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter

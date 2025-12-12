@@ -18,7 +18,7 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
         self.provider_name = "dynatrace"
     
     def initialize(self) -> Dict[str, Any]:
-        """Initialize the Dynatrace observability provider and get the trace attributes."""
+        """Initialize the Dynatrace observability provider using ADOT programmatic activation."""
         try:
             provider_config = self.get_provider_config()
             
@@ -33,31 +33,37 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
                 logging.error("Dynatrace dt_token and otlp_endpoint required but not provided")
                 return {}
             
-            logging.info("Dynatrace credentials validated")
+            logging.info("✅ Dynatrace credentials validated")
             
-            # Set up environment variables for Dynatrace (CRITICAL for Strands integration)
-            os.environ["DT_TOKEN"] = dt_token
-            os.environ["OTLP_ENDPOINT"] = otlp_endpoint
+            # Prepare ADOT configuration for all 3 pillars (traces, metrics, logs)
+            provider_endpoints = {
+                "traces": self._normalize_otlp_endpoint(otlp_endpoint, "/v1/traces"),
+                "metrics": self._normalize_otlp_endpoint(otlp_endpoint, "/v1/metrics"), 
+                "logs": self._normalize_otlp_endpoint(otlp_endpoint, "/v1/logs")
+            }
             
-            # Log environment variable setup securely
-            logging.info("✅ Dynatrace environment variables configured:")
-            logging.info("   DT_TOKEN: ✅ Set")
-            self._log_endpoint_securely("OTLP_ENDPOINT", otlp_endpoint)
+            auth_headers = {
+                "all": f"Authorization=Api-Token {dt_token}"
+            }
             
-            # CRITICAL: Initialize OpenTelemetry for Dynatrace
-            try:
-                self._initialize_opentelemetry(dt_token, otlp_endpoint)
-                logging.info("🚀 OpenTelemetry initialized successfully for Dynatrace")
-            except Exception as otel_error:
-                from secure_logging_utils import log_exception_safely
-                log_exception_safely(logger, "Dynatrace OpenTelemetry initialization", otel_error)
-                logging.warning("   Traces will not be sent to Dynatrace")
-                # Don't return empty dict - still provide trace attributes for debugging
+            # Dynatrace-specific resource attributes
+            resource_attributes = {
+                "dt.trace_sampled": "true"
+            }
             
-            # Use DRY helper to create standard trace attributes
+            # Activate ADOT programmatically using DRY base method
+            self._initialize_adot_programmatically(provider_endpoints, auth_headers, resource_attributes)
+            
+            # Initialize LLMetry after ADOT setup for enhanced LLM observability
+            self._initialize_llmetry()
+            
+            # Use DRY helper to create standard trace attributes with Dynatrace-specific additions
             self.trace_attributes = self._create_standard_trace_attributes()
+            self.trace_attributes.update({
+                "dt.trace_sampled": "true"
+            })
             
-            logging.info("✅ Dynatrace observability provider initialized successfully")
+            logging.info("✅ Dynatrace observability provider initialized with ADOT")
             logging.debug("📊 Trace attributes configured")
             return self.trace_attributes
             
@@ -114,49 +120,37 @@ class DynatraceObservabilityProvider(BaseObservabilityProvider):
             log_exception_safely(logger, "Dynatrace LLMetry initialization", llmetry_error)
             logging.info("   Falling back to basic OpenTelemetry tracing")
     
+    # REQUIRED: Minimal implementations to satisfy abstract base class
+    # ADOT auto-instrumentation + Traceloop handles everything automatically
+    
     def _get_metrics_client_config(self, service_name: str, environment: str) -> Dict[str, Any]:
-        """Get Dynatrace metrics client configuration."""
-        provider_config = self.get_provider_config()
-        return {
-            "type": "dynatrace_otlp_metrics",
-            "dt_token": provider_config.get("dt_token", ""),
-            "otlp_endpoint": provider_config.get("otlp_endpoint", "").replace('/v1/traces', '/v1/metrics'),
-            "tags": {"service": service_name, "env": environment}
-        }
+        """Auto-instrumentation handles metrics - no manual config needed."""
+        return {"type": "auto_instrumentation", "message": "ADOT + Traceloop handle metrics automatically"}
     
     def _get_log_client_config(self) -> Dict[str, Any]:
-        """Get Dynatrace log client configuration."""
-        return {"type": "dynatrace_otlp_spans"}
+        """Auto-instrumentation handles logs - no manual config needed."""
+        return {"type": "auto_instrumentation", "message": "ADOT + Traceloop handle logs automatically"}
     
     def _send_metrics_with_client(self, metrics_data: Dict[str, Any], client_config: Dict[str, Any]):
-        """Send metrics using Dynatrace OTLP - minimal implementation."""
-        from opentelemetry import metrics as otel_metrics
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        
-        # Create OTLP metric exporter
-        exporter = OTLPMetricExporter(
-            endpoint=client_config["otlp_endpoint"],
-            headers={"Authorization": f"Api-Token {client_config['dt_token']}"}
-        )
-        reader = PeriodicExportingMetricReader(exporter, export_interval_millis=10000)
-        meter = MeterProvider(metric_readers=[reader]).get_meter("strands")
-        
-        # Send metrics
-        if metrics_data["tokens"]:
-            counter = meter.create_up_down_counter("strands_tokens")
-            counter.add(metrics_data["tokens"]["total"], client_config["tags"])
-            print(f"✅ Sent {metrics_data['tokens']['total']} tokens to Dynatrace")
+        """Auto-instrumentation handles metrics - no manual sending needed."""
+        print("📊 ADOT + Traceloop auto-instrumentation handles metrics automatically - no manual processing")
     
     def _emit_log_with_client(self, log_data: Dict[str, Any], client_config: Dict[str, Any]):
-        """Emit log using Dynatrace OTLP spans - minimal implementation."""
-        from opentelemetry import trace
-        tracer = trace.get_tracer("strands-logs")
-        with tracer.start_as_current_span("strands_log") as span:
-            span.set_attribute("log.message", log_data["message"])
-            span.set_attribute("log.level", log_data["level"])
-            span.set_attribute("dt.trace_sampled", "true")
+        """Auto-instrumentation handles logs - no manual emitting needed."""
+        print("📝 ADOT + Traceloop auto-instrumentation handles logs automatically - no manual processing")
+    
+    def get_auto_instrumentation_status(self) -> Dict[str, Any]:
+        """Get the status of ADOT auto-instrumentation for Dynatrace."""
+        return {
+            "provider": "dynatrace", 
+            "adot_enabled": os.environ.get("OTEL_PYTHON_DISTRO") == "aws_distro",
+            "traces_endpoint": os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
+            "metrics_endpoint": os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", ""),
+            "logs_endpoint": os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", ""),
+            "auto_logging": os.environ.get("OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED") == "true",
+            "llm_tracing": "traceloop" in str(type(self)),
+            "message": "✅ ADOT + Traceloop handle all telemetry automatically - no manual intervention required"
+        }
     
     def get_strands_tracer_config(self, service_name: str, environment: str) -> Dict[str, Any]:
         """Get configuration for Strands get_tracer() to send traces to Dynatrace."""

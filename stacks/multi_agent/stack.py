@@ -156,10 +156,9 @@ class MultiAgentStack(FargateServiceStack):
         
         # Create the agent service using ALB-VPC Lattice hybrid approach for extended timeout
         # This places ALB between VPC Lattice and ECS tasks to solve the 60-second timeout limitation
-        # Use generic name for CDK construct IDs to make CloudFormation template reusable
-        # CloudFormation parameter is used for actual AWS resource names and environment variables
+        # Use static name for CDK construct IDs but AgentName parameter for actual AWS resource names
         resources = self._create_agent_service_with_versioned_image(
-            service_name="agent",  # Use static name for CDK construct IDs
+            service_name="agent",  # Static name for CDK construct IDs (required by CDK)
             container_image_path=container_image_path,
             port=container_port,
             health_check_path=AGENT_HEALTH_CHECK_PATH,
@@ -169,7 +168,8 @@ class MultiAgentStack(FargateServiceStack):
             environment_vars=environment_vars,
             platform=ecr_assets.Platform.LINUX_ARM64,
             dockerfile_path=dockerfile_path,
-            vpc_lattice_service_name=self.agent_name_parameter.value_as_string,  # Pass parameter for VPC Lattice service name
+            vpc_lattice_service_name=self.agent_name_parameter.value_as_string,  # Use parameter for VPC Lattice service name
+            aws_service_name=self.agent_name_parameter.value_as_string,  # Use parameter for actual AWS resource names
             force_new_deployment=True  # Enable update button for CloudFormation stack updates
         )
         
@@ -413,7 +413,7 @@ class MultiAgentStack(FargateServiceStack):
         
         # Create ALB resources
         alb_resources = self._create_alb_resources_for_vpc_lattice(
-            service_name, port, health_check_path
+            service_name, port, health_check_path, kwargs.get('aws_service_name')
         )
         
         # Create VPC Lattice service
@@ -449,7 +449,7 @@ class MultiAgentStack(FargateServiceStack):
         
         # Add tags
         self.add_common_tags(ecs_service, {
-            "ServiceName": service_name,
+            "ServiceName": self.agent_name_parameter.value_as_string,  # Use AgentName parameter for ServiceName tag
             "ServiceType": "Fargate",
             "LoadBalancer": "ALB",
             "ServiceMesh": "VPCLattice"
@@ -493,7 +493,7 @@ class MultiAgentStack(FargateServiceStack):
         """
         env_vars = environment_vars or {}
         env_vars["HOSTED_DNS"] = lattice_dns
-        env_vars["SERVICE_NAME"] = service_name
+        env_vars["SERVICE_NAME"] = self.agent_name_parameter.value_as_string  # Use AgentName parameter for SERVICE_NAME
         env_vars["ECS_CONTAINER_STOP_TIMEOUT"] = "2s"
         
         # Use the ImageTag parameter directly - it contains the full CDK image URI with SHA256 hash
@@ -503,7 +503,7 @@ class MultiAgentStack(FargateServiceStack):
             image=ecs.ContainerImage.from_registry(self.image_tag_parameter.value_as_string),
             logging=ecs.LogDrivers.aws_logs(
                 log_group=log_group,
-                stream_prefix=f'{service_name}-service',
+                stream_prefix=f'{self.agent_name_parameter.value_as_string}-service',  # Use AgentName parameter for log stream prefix
                 mode=ecs.AwsLogDriverMode.NON_BLOCKING
             ),
             port_mappings=[ecs.PortMapping(

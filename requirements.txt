@@ -1,5 +1,24 @@
-aws-cdk-lib==2.208.0
+aws-cdk-lib==2.232.1
 constructs
 pyyaml
 cdk-nag
 boto3
+
+# ADOT (AWS Distro for OpenTelemetry) - Production-ready OTEL distribution
+aws-opentelemetry-distro>=0.10.0
+opentelemetry-distro[otlp]
+opentelemetry-sdk-extension-aws
+opentelemetry-propagator-aws-xray
+
+# ADOT Auto-Instrumentation (programmatically activated)
+opentelemetry-instrumentation-boto3sqs
+opentelemetry-instrumentation-botocore
+opentelemetry-instrumentation-httpx
+opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-logging
+opentelemetry-instrumentation-system-metrics
+
+# Provider-specific libraries for enhanced integration
+ddtrace>=2.0.0  # Datadog tracing, metrics, logs, and LLM observability
+datadog>=0.49.0  # Datadog StatsD metrics API
+traceloop-sdk>=0.15.0  # Dynatrace LLM observability enhancement

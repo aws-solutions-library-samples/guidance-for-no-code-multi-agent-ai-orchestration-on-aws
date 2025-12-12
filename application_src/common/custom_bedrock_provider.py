@@ -175,11 +175,20 @@ class CustomBedrockModel(Model):
     def _format_messages_for_bedrock(self, messages: Messages) -> list[dict[str, Any]]:
         """Convert Strands Messages to Bedrock converse_stream format with validation."""
         bedrock_messages = []
-        tool_use_ids = set()  # Track tool use IDs to validate results
+        tool_use_ids_by_turn = {}  # turn_index -> set of tool_use_ids for that turn
+        current_turn = 0
         
         for msg_idx, message in enumerate(messages):
             role = message.get('role', 'user')
             content_blocks = message.get('content', [])
+            
+            # Track turn changes (user/assistant alternation indicates new turn)
+            if msg_idx > 0 and messages[msg_idx-1].get('role') != role:
+                current_turn += 1
+            
+            # Initialize tool use tracking for this turn
+            if current_turn not in tool_use_ids_by_turn:
+                tool_use_ids_by_turn[current_turn] = set()
             
             # Format content blocks for Bedrock converse_stream API
             bedrock_content = []
@@ -193,8 +202,8 @@ class CustomBedrockModel(Model):
                     tool_use = block['toolUse']
                     tool_use_id = tool_use.get('toolUseId')
                     if tool_use_id:
-                        tool_use_ids.add(tool_use_id)
-                        logger.debug(f"Registered tool use ID: {tool_use_id}")
+                        tool_use_ids_by_turn[current_turn].add(tool_use_id)
+                        logger.debug(f"Registered tool use ID: {tool_use_id} for turn {current_turn}")
                     bedrock_content.append({
                         "toolUse": {
                             "toolUseId": tool_use_id,
@@ -203,13 +212,22 @@ class CustomBedrockModel(Model):
                         }
                     })
                 elif isinstance(block, dict) and 'toolResult' in block:
-                    # Handle tool result blocks
+                    # Handle tool result blocks - validate against immediately previous turn's tool uses
                     tool_result = block['toolResult']
                     tool_use_id = tool_result.get('toolUseId')
                     
-                    # Validate that this tool result matches a previous tool use
-                    if tool_use_id not in tool_use_ids:
-                        logger.warning(f"Tool result ID {tool_use_id} at message {msg_idx} doesn't match any previous tool use. Available IDs: {tool_use_ids}")
+                    # Check if this tool result matches a tool use from the immediately previous turn only
+                    # Bedrock requires tool results to match tool uses from the previous turn, not any previous turn
+                    prev_turn = current_turn - 1
+                    valid_tool_result = (
+                        prev_turn >= 0 and 
+                        tool_use_id in tool_use_ids_by_turn.get(prev_turn, set())
+                    )
+                    
+                    if not valid_tool_result:
+                        logger.warning(f"Tool result ID {tool_use_id} at message {msg_idx} (turn {current_turn}) doesn't match tool use from immediately previous turn {prev_turn}. Skipping to prevent ValidationException.")
+                        logger.debug(f"Previous turn {prev_turn} tool use IDs: {tool_use_ids_by_turn.get(prev_turn, set())}")
+                        logger.debug(f"All tool use IDs by turn: {tool_use_ids_by_turn}")
                         # Skip this invalid tool result to prevent ValidationException
                         continue
                     
@@ -219,7 +237,7 @@ class CustomBedrockModel(Model):
                             "content": tool_result.get('content', [])
                         }
                     })
-                    logger.debug(f"Validated tool result ID: {tool_use_id}")
+                    logger.debug(f"Validated tool result ID: {tool_use_id} matches previous turn {prev_turn}")
             
             # Only add messages with actual content
             if bedrock_content:
@@ -238,7 +256,7 @@ class CustomBedrockModel(Model):
                 "content": [{"text": "Hello"}]
             })
         
-        logger.debug(f"Formatted {len(bedrock_messages)} messages with {len(tool_use_ids)} tool use IDs")
+        logger.debug(f"Formatted {len(bedrock_messages)} messages across {current_turn + 1} turns")
         return bedrock_messages
     
     def _format_request_body(

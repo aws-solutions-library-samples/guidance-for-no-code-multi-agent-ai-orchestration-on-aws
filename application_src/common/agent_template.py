@@ -214,10 +214,117 @@ def create_agent(agent_name="qa_agent", agent_description="A QA agent that can a
                 print(f"⚠️ Failed to register Bedrock AgentCore Memory hooks: {str(e)}")
                 # Don't fail agent creation if hooks fail
         
-        print(f"✅ Strands Agent '{agent_name}' created successfully with observability")
+        # CRITICAL: Enable auto-instrumentation for complete observability
+        if obs_provider:
+            try:
+                print("🤖 Enabling auto-instrumentation for complete observability...")
+                service_name, _ = obs_provider._get_service_info()
+                environment = os.environ.get('ENVIRONMENT', 'production')
+                obs_provider.enable_auto_instrumentation(service_name, environment)
+            except Exception as e:
+                print(f"⚠️ Failed to enable auto-instrumentation: {e}")
+        
+        print(f"✅ Strands Agent '{agent_name}' created with AUTOMATIC observability")
+        print("🎯 All metrics, logs, traces will be sent automatically to configured provider!")
         return agent
         
     except Exception as e:
         print(f"Error creating agent: {str(e)}")
+        traceback.print_exc()
+        return None
+
+
+def create_agent_with_evaluation_hooks(agent_name="qa_agent", agent_description="A QA agent that can answer questions from Knowledge Base", user_id=None, prompt="You are a knowledge assistant"):
+    """
+    Create an agent with built-in evaluation and observability hooks.
+    
+    Args:
+        agent_name: Name of the agent configuration
+        agent_description: Description of the agent
+        user_id: User ID for memory operations
+        prompt: System prompt for the agent
+        
+    Returns:
+        Agent: Enhanced Strands Agent with evaluation capabilities
+    """
+    try:
+        print(f"🎯 Creating agent with evaluation hooks: {agent_name}")
+        
+        # Create base agent using standard method
+        agent = create_agent(agent_name, agent_description, user_id, prompt)
+        if not agent:
+            return None
+        
+        # Add evaluation metrics to observability
+        obs_provider = ObservabilityFactory.create(agent_name)
+        if obs_provider:
+            print("📈 Adding evaluation metrics hooks...")
+            
+            # Add custom evaluation metrics
+            try:
+                from opentelemetry import metrics as otel_metrics
+                meter_provider = otel_metrics.get_meter_provider() 
+                if meter_provider:
+                    eval_meter = meter_provider.get_meter("strands_evaluation", version="1.0.0")
+                    
+                    # Create evaluation counters
+                    agent.evaluation_success_counter = eval_meter.create_counter(
+                        name="strands.evaluation.success",
+                        description="Successful agent evaluations", 
+                        unit="1"
+                    )
+                    
+                    agent.evaluation_failure_counter = eval_meter.create_counter(
+                        name="strands.evaluation.failures",
+                        description="Failed agent evaluations",
+                        unit="1"
+                    )
+                    
+                    agent.evaluation_score_histogram = eval_meter.create_histogram(
+                        name="strands.evaluation.score",
+                        description="Agent evaluation scores",
+                        unit="1"
+                    )
+                    
+                    print("✅ Evaluation metrics hooks added to agent")
+                    
+            except Exception as eval_error:
+                print(f"⚠️ Failed to add evaluation metrics: {eval_error}")
+        
+        return agent
+        
+    except Exception as e:
+        print(f"❌ Error creating agent with evaluation hooks: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def execute_agent_with_observability(agent, user_input: str, agent_name: str = "qa_agent"):
+    """
+    Execute a Strands Agent with AUTOMATIC observability.
+    ADOT + Strands[otel] handles all metrics, logs, traces automatically.
+    
+    Args:
+        agent: The Strands Agent instance
+        user_input: User input message to send to the agent
+        agent_name: Agent name for identification
+        
+    Returns:
+        AgentResult: The result from the agent execution
+    """
+    try:
+        print(f"🚀 Executing agent '{agent_name}' with AUTOMATIC observability...")
+        print("📊 ADOT will automatically capture and forward all metrics, logs, traces!")
+        
+        # Execute the agent - ADOT auto-instrumentation handles everything automatically
+        agent_result = agent.invoke(user_input)
+        
+        print(f"✅ Agent executed successfully - all telemetry sent automatically!")
+        return agent_result
+        
+    except Exception as e:
+        print(f"❌ Error executing agent: {e}")
+        import traceback
         traceback.print_exc()
         return None

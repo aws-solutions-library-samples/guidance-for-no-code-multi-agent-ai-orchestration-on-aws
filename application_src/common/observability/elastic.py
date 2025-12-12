@@ -21,54 +21,51 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
         self.provider_name = "elastic"
     
     def initialize(self) -> Dict[str, Any]:
-        """Initialize the Elastic observability provider and get the trace attributes."""
+        """Initialize the Elastic observability provider using ADOT programmatic activation."""
         try:
             provider_config = self.get_provider_config()
             
             # Get Elastic configuration
             api_key = provider_config.get("api_key", "")
             otlp_endpoint = provider_config.get("otlp_endpoint", "")
+            dataset = provider_config.get("dataset", "generic.otel")
+            namespace = provider_config.get("namespace", "default")
             
             # Simple credential validation with minimal logging
             if not api_key or not otlp_endpoint:
                 logging.error("Elastic api_key and otlp_endpoint required but not provided")
                 return {}
             
-            logging.info("Elastic credentials validated")
+            logging.info("✅ Elastic credentials validated")
             
-            # Set up environment variables for Elastic (CRITICAL for Strands integration)
-            os.environ["ELASTIC_API_KEY"] = api_key
-            os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = otlp_endpoint
-            os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = f"Authorization=ApiKey {api_key}"
+            # Prepare ADOT configuration for all 3 pillars (traces, metrics, logs)
+            provider_endpoints = {
+                "traces": self._normalize_otlp_endpoint(otlp_endpoint, "/v1/traces"),
+                "metrics": self._normalize_otlp_endpoint(otlp_endpoint, "/v1/metrics"),
+                "logs": self._normalize_otlp_endpoint(otlp_endpoint, "/v1/logs")
+            }
             
-            # Log environment variable setup securely
-            logging.info("✅ Elastic environment variables configured:")
-            logging.info("   ELASTIC_API_KEY: ✅ Set")
-            self._log_endpoint_securely("OTEL_EXPORTER_OTLP_ENDPOINT", otlp_endpoint)
-            logging.info("   OTEL_EXPORTER_OTLP_HEADERS: ✅ Set")
+            auth_headers = {
+                "all": f"Authorization=ApiKey {api_key}"
+            }
             
-            # CRITICAL: Initialize OpenTelemetry for Elastic
-            try:
-                self._initialize_opentelemetry(otlp_endpoint, api_key)
-                logging.info("🚀 OpenTelemetry initialized successfully for Elastic")
-            except Exception as otel_error:
-                from secure_logging_utils import log_exception_safely
-                log_exception_safely(logger, "Elastic OpenTelemetry initialization", otel_error)
-                logging.warning("   Traces will not be sent to Elastic")
-                # Don't return empty dict - still provide trace attributes for debugging
+            # Elastic-specific resource attributes
+            resource_attributes = {
+                "data_stream.dataset": dataset,
+                "data_stream.namespace": namespace
+            }
+            
+            # Activate ADOT programmatically using DRY base method
+            self._initialize_adot_programmatically(provider_endpoints, auth_headers, resource_attributes)
             
             # Use DRY helper to create standard trace attributes with Elastic-specific additions
-            dataset = provider_config.get("dataset", "generic.otel")
-            namespace = provider_config.get("namespace", "default")
-            
             self.trace_attributes = self._create_standard_trace_attributes()
-            # Add Elastic-specific attributes
             self.trace_attributes.update({
                 "data_stream.dataset": dataset,
                 "data_stream.namespace": namespace
             })
             
-            logging.info("✅ Elastic observability provider initialized successfully")
+            logging.info("✅ Elastic observability provider initialized with ADOT")
             logging.debug("📊 Trace attributes configured")
             return self.trace_attributes
             
@@ -107,48 +104,36 @@ class ElasticObservabilityProvider(BaseObservabilityProvider):
         
         self._initialize_opentelemetry_common(otlp_config)
     
+    # REQUIRED: Minimal implementations to satisfy abstract base class
+    # ADOT auto-instrumentation handles everything automatically
+    
     def _get_metrics_client_config(self, service_name: str, environment: str) -> Dict[str, Any]:
-        """Get Elastic metrics client configuration."""
-        provider_config = self.get_provider_config()
-        return {
-            "type": "elastic_otlp_metrics",
-            "api_key": provider_config.get("api_key", ""),
-            "otlp_endpoint": provider_config.get("otlp_endpoint", "").replace('/v1/traces', '/v1/metrics'),
-            "tags": {"service": service_name, "env": environment}
-        }
+        """Auto-instrumentation handles metrics - no manual config needed."""
+        return {"type": "auto_instrumentation", "message": "ADOT handles metrics automatically"}
     
     def _get_log_client_config(self) -> Dict[str, Any]:
-        """Get Elastic log client configuration."""
-        return {"type": "elastic_otlp_spans"}
+        """Auto-instrumentation handles logs - no manual config needed."""
+        return {"type": "auto_instrumentation", "message": "ADOT handles logs automatically"}
     
     def _send_metrics_with_client(self, metrics_data: Dict[str, Any], client_config: Dict[str, Any]):
-        """Send metrics using Elastic OTLP - minimal implementation."""
-        from opentelemetry import metrics as otel_metrics
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        
-        # Create OTLP metric exporter
-        exporter = OTLPMetricExporter(
-            endpoint=client_config["otlp_endpoint"],
-            headers={"Authorization": f"ApiKey {client_config['api_key']}"}
-        )
-        reader = PeriodicExportingMetricReader(exporter, export_interval_millis=5000)
-        meter = MeterProvider(metric_readers=[reader]).get_meter("strands")
-        
-        # Send metrics
-        if metrics_data["tokens"]:
-            counter = meter.create_counter("tokens_total")
-            counter.add(metrics_data["tokens"]["total"], client_config["tags"])
-            print(f"✅ Sent {metrics_data['tokens']['total']} tokens to Elastic")
+        """Auto-instrumentation handles metrics - no manual sending needed."""
+        print("📊 ADOT auto-instrumentation handles metrics automatically - no manual processing")
     
     def _emit_log_with_client(self, log_data: Dict[str, Any], client_config: Dict[str, Any]):
-        """Emit log using Elastic OTLP spans - minimal implementation."""
-        from opentelemetry import trace
-        tracer = trace.get_tracer("strands-logs")
-        with tracer.start_as_current_span("strands_log") as span:
-            span.set_attribute("log.message", log_data["message"])
-            span.set_attribute("log.level", log_data["level"])
+        """Auto-instrumentation handles logs - no manual emitting needed."""
+        print("📝 ADOT auto-instrumentation handles logs automatically - no manual processing")
+    
+    def get_auto_instrumentation_status(self) -> Dict[str, Any]:
+        """Get the status of ADOT auto-instrumentation for Elastic."""
+        return {
+            "provider": "elastic",
+            "adot_enabled": os.environ.get("OTEL_PYTHON_DISTRO") == "aws_distro",
+            "traces_endpoint": os.environ.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""),
+            "metrics_endpoint": os.environ.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", ""),
+            "logs_endpoint": os.environ.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", ""),
+            "auto_logging": os.environ.get("OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED") == "true",
+            "message": "✅ ADOT handles all telemetry automatically - no manual intervention required"
+        }
     
     def get_strands_tracer_config(self, service_name: str, environment: str) -> Dict[str, Any]:
         """Get configuration for Strands get_tracer() to send traces to Elastic."""
