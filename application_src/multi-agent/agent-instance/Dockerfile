@@ -34,7 +34,8 @@ RUN python3.11 -m pip install --upgrade pip setuptools wheel
 # Stage 2: Development build
 FROM base as development
 
-# Install Python dependencies
+# Install Python dependencies from agent-instance requirements only
+# (already includes all needed dependencies)
 COPY multi-agent/agent-instance/requirements.txt .
 RUN python3.11 -m pip install -r requirements.txt
 
@@ -52,7 +53,8 @@ CMD ["python3.11", "-u", "agent.py"]
 # Stage 3: Production build
 FROM base as production
 
-# Install Python dependencies
+# Install Python dependencies from agent-instance requirements only
+# (already includes all needed dependencies)
 COPY multi-agent/agent-instance/requirements.txt .
 RUN python3.11 -m pip install -r requirements.txt
 

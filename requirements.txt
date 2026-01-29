@@ -1,4 +1,4 @@
-aws-cdk-lib==2.232.1
+aws-cdk-lib==2.236.0
 constructs
 pyyaml
 cdk-nag

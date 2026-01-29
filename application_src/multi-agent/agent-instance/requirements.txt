@@ -14,15 +14,28 @@ httpx[http2]>=0.24.0
 # AWS Dependencies
 boto3
 
+# Langchain Core (required by ALL knowledge base providers)
+langchain
+langchain-core
+langchain-community
+langchain_aws
+
 # Knowledge Base Providers
+# MongoDB support
+langchain-mongodb
+pymongo
+
 # Snowflake support
 snowflake-connector-python
+snowflake-snowpark-python
 
 # Elasticsearch support
-langchain_community
 langchain-elasticsearch
-langchain_aws
 elasticsearch
+
+# Memory Providers
+mem0ai
+opensearch-py
 
 # Observability dependencies
 langfuse==2.50.2

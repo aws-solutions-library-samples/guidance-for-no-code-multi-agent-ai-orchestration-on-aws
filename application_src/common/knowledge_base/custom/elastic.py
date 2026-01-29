@@ -10,10 +10,23 @@ import boto3
 from strands import tool
 from ..base import BaseKnowledgeBaseProvider
 
-# Import Langchain components
-from langchain_community.vectorstores import ElasticsearchStore
-from langchain_community.embeddings import BedrockEmbeddings
-from langchain.schema.document import Document
+# Import Langchain components with error handling
+try:
+    from langchain_community.vectorstores import ElasticsearchStore
+    from langchain_community.embeddings import BedrockEmbeddings
+    try:
+        # Try new import path first (langchain-core)
+        from langchain_core.documents import Document
+    except ImportError:
+        # Fallback to old import path
+        from langchain.schema.document import Document
+    LANGCHAIN_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Langchain import failed in elastic.py: {e}")
+    ElasticsearchStore = None
+    BedrockEmbeddings = None
+    Document = None
+    LANGCHAIN_AVAILABLE = False
 
 class ElasticKnowledgeBaseProvider(BaseKnowledgeBaseProvider):
     """Knowledge base provider for Elasticsearch using direct client with Langchain."""
@@ -136,8 +149,15 @@ class ElasticKnowledgeBaseProvider(BaseKnowledgeBaseProvider):
             try:
                 print(f"Performing semantic search in index '{self.index_name}' for: {query}")
                 
-                # Override the default k value
-                docs = self.retriever.get_relevant_documents(query, k=top_k)
+                # Override the default k value by updating search_kwargs
+                self.retriever.search_kwargs["k"] = top_k
+                
+                # Use invoke() method for new langchain versions, with fallback to old method
+                try:
+                    docs = self.retriever.invoke(query)
+                except AttributeError:
+                    # Fallback to old method name for compatibility
+                    docs = self.retriever.get_relevant_documents(query)
                 
                 if not docs:
                     return f"No semantic search results found for query: '{query}'"

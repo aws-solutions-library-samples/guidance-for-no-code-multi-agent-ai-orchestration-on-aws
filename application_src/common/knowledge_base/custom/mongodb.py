@@ -19,9 +19,15 @@ except ImportError:
 
 try:
     from langchain_community.embeddings import BedrockEmbeddings
-    from langchain.schema.document import Document
+    try:
+        # Try new import path first (langchain-core)
+        from langchain_core.documents import Document
+    except ImportError:
+        # Fallback to old import path
+        from langchain.schema.document import Document
     LANGCHAIN_AVAILABLE = True
-except ImportError:
+except ImportError as e:
+    print(f"Warning: Langchain import failed in mongodb.py: {e}")
     LANGCHAIN_AVAILABLE = False
     BedrockEmbeddings = None
     Document = None
@@ -74,6 +80,8 @@ class MongoDBKnowledgeBaseProvider(BaseKnowledgeBaseProvider):
             self.database_name = provider_config.get("database_name", "")
             self.collection_name = provider_config.get("collection_name", "")
             self.index_name = provider_config.get("index_name", "")
+            embedding_key = provider_config.get("embedding_key", "embedding_vector")  # Field name in MongoDB
+            text_key = provider_config.get("text_key", "text")  # Field name for document text
             
             # Get embedding model ID from config
             try:
@@ -127,11 +135,14 @@ class MongoDBKnowledgeBaseProvider(BaseKnowledgeBaseProvider):
             )
             print(f"Initialized Bedrock embeddings with model: {embedding_model_id}")
             
-            # Initialize MongoDB Atlas vector store
+            # Initialize MongoDB Atlas vector store with correct field names
+            print(f"Using MongoDB field names - embedding: {embedding_key}, text: {text_key}")
             vector_store = MongoDBAtlasVectorSearch(
                 collection=mongodb_collection,
                 embedding=self.embedding_model,
                 index_name=self.index_name,
+                embedding_key=embedding_key,  # Field name for embeddings
+                text_key=text_key,  # Field name for text content
                 relevance_score_fn="cosine",
             )
             
@@ -169,7 +180,13 @@ class MongoDBKnowledgeBaseProvider(BaseKnowledgeBaseProvider):
                 
                 # Override the default k value by updating search_kwargs
                 self.retriever.search_kwargs["k"] = top_k
-                docs = self.retriever.get_relevant_documents(query)
+                
+                # Use invoke() method for new langchain versions, with fallback to old method
+                try:
+                    docs = self.retriever.invoke(query)
+                except AttributeError:
+                    # Fallback to old method name for compatibility
+                    docs = self.retriever.get_relevant_documents(query)
                 
                 if not docs:
                     return f"No semantic search results found for query: '{query}'"

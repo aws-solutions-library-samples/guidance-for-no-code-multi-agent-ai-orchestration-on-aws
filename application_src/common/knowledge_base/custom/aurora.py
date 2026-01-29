@@ -11,8 +11,18 @@ from typing import List, Dict, Any, Optional
 from strands import tool
 from ..base import BaseKnowledgeBaseProvider
 import logging
-from ...secure_logging_utils import SecureLogger
 
+# Import SecureLogger with fallback
+try:
+    from ...secure_logging_utils import SecureLogger
+except ImportError:
+    try:
+        from common.secure_logging_utils import SecureLogger
+    except ImportError:
+        # Fallback: create a simple logger class
+        class SecureLogger:
+            def hash_sensitive_value(self, value):
+                return "***REDACTED***"
 
 logger = logging.getLogger(__name__)
 

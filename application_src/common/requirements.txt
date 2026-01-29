@@ -23,10 +23,8 @@ langchain-mongodb
 pymongo
 snowflake-snowpark-python
 PyJWT
-strands-agents-tools[use_aws]
-strands-agents-tools[http_request]
-strands-agents-tools[load_tool]
-strands-agents-tools[mcp_client]
+# Note: strands-agents-tools extras removed as they don't exist in current version
+# Core functionality is available in base package
 strands-agents[otel]
 bedrock-agentcore
 

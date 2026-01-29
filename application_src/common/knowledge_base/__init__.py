@@ -94,6 +94,9 @@ class KnowledgeBaseFactory:
         elif provider == "aurora":
             print(f"KB Factory: Creating Aurora provider with type: {provider_type} for agent: {agent_name}")
             _kb_provider_instance = KnowledgeBaseFactory._create_aurora_provider(kb_config, provider_type)
+        elif provider == "mongodb":
+            print(f"KB Factory: Creating MongoDB provider with type: {provider_type} for agent: {agent_name}")
+            _kb_provider_instance = KnowledgeBaseFactory._create_mongodb_provider(kb_config, provider_type)
         else:
             print(f"KB Factory: Unknown knowledge base provider: {provider}")
             return None
@@ -192,6 +195,55 @@ class KnowledgeBaseFactory:
         else:
             print(f"Unknown Aurora provider type: {provider_type}")
             return None
+    
+    @staticmethod
+    def _create_mongodb_provider(kb_config, provider_type):
+        """Create MongoDB provider based on type."""
+        if provider_type == "custom":
+            print("Using custom MongoDB Atlas client")
+            try:
+                from .custom.mongodb import MongoDBKnowledgeBaseProvider
+                return MongoDBKnowledgeBaseProvider(kb_config)
+            except ImportError as e:
+                print(f"Failed to import MongoDB provider: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
+            except Exception as e:
+                print(f"Error creating MongoDB provider: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
+        elif provider_type == "mcp":
+            print("Using MCP MongoDB client")
+            try:
+                from .mcp.mongodb import MongoDBKnowledgeBaseProvider
+                return MongoDBKnowledgeBaseProvider(kb_config)
+            except ImportError as e:
+                print(f"Failed to import MCP MongoDB provider: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
+            except Exception as e:
+                print(f"Error creating MCP MongoDB provider: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
+        else:
+            print(f"Unknown MongoDB provider type: {provider_type}, defaulting to custom")
+            try:
+                from .custom.mongodb import MongoDBKnowledgeBaseProvider
+                return MongoDBKnowledgeBaseProvider(kb_config)
+            except ImportError as e:
+                print(f"Failed to import MongoDB provider (fallback): {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
+            except Exception as e:
+                print(f"Error creating MongoDB provider (fallback): {str(e)}")
+                import traceback
+                traceback.print_exc()
+                return None
 
 def reset_knowledge_base_provider():
     """Reset the knowledge base provider instance to force recreation."""
