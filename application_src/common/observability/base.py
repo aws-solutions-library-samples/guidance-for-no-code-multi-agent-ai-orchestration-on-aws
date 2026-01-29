@@ -343,7 +343,8 @@ class BaseObservabilityProvider(ABC):
                 if telemetry_type != "all":
                     env_var = f"OTEL_EXPORTER_OTLP_{telemetry_type.upper()}_HEADERS"
                     os.environ[env_var] = header
-                    print(f"   {env_var}: ✅ Configured")
+                    # Security: Don't log sensitive authentication headers
+                    print(f"   {env_var}: ✅ Configured (headers redacted)")
             
             # 4. Set protocol to http/protobuf (ADOT default)
             os.environ["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] = "http/protobuf"
