@@ -5,10 +5,10 @@
   "dependencies": {
     "@aws-amplify/auth": "6.0.0",
     "@aws-amplify/core": "6.0.0",
-    "@aws-sdk/client-secrets-manager": "3.600.0",
+    "@aws-sdk/client-secrets-manager": "3.978.0",
     "@cloudscape-design/components": "3.0.1106",
     "@cloudscape-design/global-styles": "1.0.46",
-    "aws-amplify": "6.0.0",
+    "aws-amplify": "6.16.0",
     "axios": "^1.12.2",
     "concurrently": "7.6.0",
     "cors": "^2.8.5",
