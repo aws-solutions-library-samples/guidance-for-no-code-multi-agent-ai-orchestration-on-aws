@@ -397,6 +397,24 @@ class FormSchemaRegistry:
                         default_value="index_aaa"
                     ),
                     FormField(
+                        name="embedding_key",
+                        type=FieldType.TEXT,
+                        label="Embedding Field Name",
+                        placeholder="embedding_vector",
+                        help_text="The name of the field containing vector embeddings in your MongoDB documents (default: embedding_vector)",
+                        required=False,
+                        default_value="embedding_vector"
+                    ),
+                    FormField(
+                        name="text_key",
+                        type=FieldType.TEXT,
+                        label="Text Field Name",
+                        placeholder="text",
+                        help_text="The name of the field containing document text/content in your MongoDB documents (default: text)",
+                        required=False,
+                        default_value="text"
+                    ),
+                    FormField(
                         name="max_results",
                         type=FieldType.NUMBER,
                         label="Max Results",
