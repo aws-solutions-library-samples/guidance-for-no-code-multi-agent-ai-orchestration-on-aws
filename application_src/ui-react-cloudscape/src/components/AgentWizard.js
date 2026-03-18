@@ -421,20 +421,51 @@ const AgentWizard = ({
         ]);
       };
       
-      // Load available agents if in configure mode
+      // Load available agents if in configure mode.
+      // Use network discovery (agent-mapping) so that only agents which are actually
+      // deployed and reachable are shown — consistent with the Agent Network Topology view.
+      // SSM may contain entries for agents that were never deployed or were deleted.
       let firstAgent = null;
       if (mode === 'configure') {
         try {
-          const agents = await withTimeout(configService.listAvailableAgents(), 5000);
-          setAvailableAgents(agents || []);
-          
-          if (agents && agents.length > 0) {
-            firstAgent = selectedAgentForConfig || agents[0];
+          const mappingResponse = await withTimeout(configService.getAgentMapping(), 8000);
+          const agentMapping = mappingResponse?.agent_mapping || {};
+
+          // Extract agent names that are active (successfully reachable on the network)
+          const deployedAgents = Object.values(agentMapping)
+            .filter(info => info.status === 'active' && info.agent_name)
+            .map(info => info.agent_name)
+            .filter((name, index, arr) => arr.indexOf(name) === index) // deduplicate
+            .sort();
+
+          if (deployedAgents.length > 0) {
+            setAvailableAgents(deployedAgents);
+            firstAgent = selectedAgentForConfig || deployedAgents[0];
             setSelectedAgentForConfig(firstAgent);
+          } else {
+            // If no active agents were found via network discovery (e.g. local dev without
+            // running containers), fall back to SSM list so the wizard remains usable.
+            const agents = await withTimeout(configService.listAvailableAgents(), 5000);
+            setAvailableAgents(agents || []);
+            if (agents && agents.length > 0) {
+              firstAgent = selectedAgentForConfig || agents[0];
+              setSelectedAgentForConfig(firstAgent);
+            }
           }
         } catch (agentError) {
-          console.error('Failed to load agents:', agentError);
-          setAvailableAgents([]);
+          console.error('Failed to load deployed agents from network, falling back to SSM list:', agentError);
+          // Graceful fallback to SSM list on any error
+          try {
+            const agents = await withTimeout(configService.listAvailableAgents(), 5000);
+            setAvailableAgents(agents || []);
+            if (agents && agents.length > 0) {
+              firstAgent = selectedAgentForConfig || agents[0];
+              setSelectedAgentForConfig(firstAgent);
+            }
+          } catch (fallbackError) {
+            console.error('SSM fallback also failed:', fallbackError);
+            setAvailableAgents([]);
+          }
         }
       }
       
