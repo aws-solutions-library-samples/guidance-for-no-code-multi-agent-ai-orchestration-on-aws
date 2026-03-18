@@ -567,26 +567,17 @@ class BaseObservabilityProvider(ABC):
             # Create base URL (scheme + netloc + path)
             safe_endpoint = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
             
-            # Handle query parameters - mask sensitive ones
+            # Handle query parameters - redact ALL values to prevent accidental
+            # logging of sensitive data (passwords, tokens, API keys) in any param.
             if parsed.query:
                 try:
                     query_params = parse_qs(parsed.query, keep_blank_values=True)
                     safe_params = []
                     
-                    for key, values in query_params.items():
-                        # List of common sensitive parameter names
-                        sensitive_params = [
-                            'api_key', 'apikey', 'api-key', 'dd-api-key', 
-                            'token', 'auth', 'authorization', 'key', 'secret',
-                            'password', 'pass', 'pwd', 'credential', 'cred'
-                        ]
-                        
-                        if key.lower() in sensitive_params:
-                            safe_params.append(f"{key}=[REDACTED]")
-                        else:
-                            # For non-sensitive params, show the values
-                            value_str = ','.join(str(v) for v in values)
-                            safe_params.append(f"{key}={value_str}")
+                    for key in query_params:
+                        # Redact every query parameter value regardless of key name
+                        # to avoid leaking passwords or other sensitive data via logging.
+                        safe_params.append(f"{key}=[REDACTED]")
                     
                     if safe_params:
                         safe_endpoint += "?" + "&".join(safe_params)
