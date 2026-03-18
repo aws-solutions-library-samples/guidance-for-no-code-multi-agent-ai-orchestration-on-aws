@@ -5,6 +5,7 @@ from helper import config
 from stacks import VpcStack, ConfigurationApiStack, WebAppStack, MultiAgentStack, SupervisorAgentStack
 from stacks.kms.stack import KMSStack
 from stacks.iam_boundaries.stack import IAMBoundariesStack
+from stacks.user_interface.waf_stack import CloudFrontWAFStack
 from cdk_nag import ( AwsSolutionsChecks, NagSuppressions )
 import os
 import json
@@ -164,6 +165,31 @@ supervisor_agent_stack.add_dependency(authentication_stack)
 # Supervisor agent depends on SSM parameters created by Configuration API startup
 supervisor_agent_stack.add_dependency(configuration_api_stack)
 
+# ---------------------------------------------------------------------------
+# CloudFront WAF Stack
+# AWS requires WAFv2 WebACLs with scope=CLOUDFRONT to live in us-east-1 –
+# this is a hard platform constraint, not a regional configuration choice.
+# The stack is always deployed to us-east-1 and publishes its ARN to SSM.
+# The UI stack retrieves that ARN via a cross-region SSM lookup (handled
+# transparently inside CloudFrontWAFStack) so no region-specific logic is
+# needed here regardless of which region the rest of the app targets.
+# ---------------------------------------------------------------------------
+ui_access_mode = conf.data.get('UIAccessMode', 'public')
+waf_prefix_lists = conf.data.get('UIPrefixList', []) or []
+
+cloudfront_waf_stack = CloudFrontWAFStack(
+    app,
+    f"{project_name}-cloudfront-waf",
+    project_name=project_name,
+    prefix_lists=waf_prefix_lists,
+    # Always us-east-1: AWS platform constraint for CloudFront-scoped WAF
+    env={
+        "region": "us-east-1",
+        "account": os.environ.get('CDK_DEFAULT_ACCOUNT'),
+    },
+    termination_protection=True,
+)
+
 ui_stack = WebAppStack(app, f"{project_name}-ui",
                             env={
                                 "region": conf.get('RegionName'),
@@ -176,11 +202,14 @@ ui_stack = WebAppStack(app, f"{project_name}-ui",
                             access_logs_bucket=vpc_stack.access_logs_bucket,
                             cognito_resources=authentication_stack.cognito_resources,  # Pass from auth stack
                             config=conf,
+                            cloudfront_waf_stack=cloudfront_waf_stack,  # WAF stack always in us-east-1
                             termination_protection=True  # Protect UI stack
                        )
 
 # UI stack depends on authentication stack for Cognito resources
 ui_stack.add_dependency(authentication_stack)
+# UI stack must deploy after WAF stack (WAF ARN must exist before CloudFront is created)
+ui_stack.add_dependency(cloudfront_waf_stack)
 
 # Apply CDK Nag AwsSolutions checks to all stacks
 # Temporarily disabled for production deployment - KMS suppressions need refinement

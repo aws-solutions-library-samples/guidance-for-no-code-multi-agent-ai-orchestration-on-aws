@@ -39,6 +39,7 @@ from stacks.common.constants import (
     CLOUDFRONT_MANAGED_PREFIX_LIST_NAME
 )
 from .cloudfront import CloudFrontVpcOriginConstruct
+from .waf_stack import CloudFrontWAFStack
 
 
 class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
@@ -55,8 +56,8 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
     configuration changes.
     """
 
-    def __init__(self, 
-                 scope: Construct, 
+    def __init__(self,
+                 scope: Construct,
                  construct_id: str,
                  api_url: str,
                  supervisor_agent_url: str,
@@ -65,6 +66,7 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
                  access_logs_bucket,
                  cognito_resources,  # CognitoResources from authentication stack
                  config: Config,
+                 cloudfront_waf_stack: Optional[CloudFrontWAFStack] = None,
                  **kwargs) -> None:
         # Add solution ID and description
         kwargs['description'] = "Web application UI with React and CloudScape for multi-agent AI management - (Solution ID - SO9637)"
@@ -99,7 +101,7 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
         
         # Create CloudFront integration for public mode
         if ui_access_mode == UI_ACCESS_MODE_PUBLIC:
-            self._create_cloudfront_integration(project_name, ui_fargate_service)
+            self._create_cloudfront_integration(project_name, ui_fargate_service, cloudfront_waf_stack)
             
             # Update the task definition environment with CloudFront URL for CORS
             self._update_cors_origins_with_cloudfront(ui_fargate_service)
@@ -440,38 +442,68 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
                 web_acl_arn=waf_protection.attr_arn
             )
 
-    def _create_cloudfront_integration(self, project_name: str, ui_fargate_service: ecs_patterns.ApplicationLoadBalancedFargateService) -> None:
-        """Create CloudFront distribution with VPC origins for public access mode."""
-        # Get prefix lists for CloudFront WAF
+    def _create_cloudfront_integration(
+        self,
+        project_name: str,
+        ui_fargate_service: ecs_patterns.ApplicationLoadBalancedFargateService,
+        cloudfront_waf_stack: Optional[CloudFrontWAFStack] = None,
+    ) -> None:
+        """Create CloudFront distribution with VPC origins for public access mode.
+
+        The WAF Web ACL is always created in us-east-1 (AWS platform constraint)
+        by ``CloudFrontWAFStack``.  This method calls
+        ``cloudfront_waf_stack.get_web_acl_arn_for(self)`` which transparently
+        handles the cross-region SSM lookup when needed – no region-specific
+        logic required here.
+
+        Args:
+            project_name: Project name prefix used for resource naming.
+            ui_fargate_service: The Fargate service whose ALB is used as the origin.
+            cloudfront_waf_stack: The ``CloudFrontWAFStack`` instance deployed in
+                us-east-1.  Required for public access mode.
+        """
+        if not cloudfront_waf_stack:
+            raise ValueError(
+                "cloudfront_waf_stack is required for public CloudFront integration. "
+                "Instantiate CloudFrontWAFStack (env=us-east-1) in app.py and pass it "
+                "to WebAppStack."
+            )
+
+        # Resolve WAF ARN – cross-region SSM lookup is handled transparently
+        # by CloudFrontWAFStack.get_web_acl_arn_for() when this stack is not in us-east-1.
+        web_acl_arn = cloudfront_waf_stack.get_web_acl_arn_for(self)
+
+        # Get prefix lists (used only for WAF – already handled by CloudFrontWAFStack)
         try:
             ui_prefix_list = self.config.get('UIPrefixList')
             if ui_prefix_list is None:
                 ui_prefix_list = []
         except KeyError:
             ui_prefix_list = []
-        
+
         # Get geo-restriction configuration
         try:
             geo_restriction_countries = self.config.get('CloudFrontGeoRestrictionCountries')
         except KeyError:
             geo_restriction_countries = None
-        
+
         # Get CloudFront price class configuration
         try:
             cloudfront_price_class = self.config.get('CloudFrontPriceClass')
         except KeyError:
             cloudfront_price_class = None
 
-        # Create CloudFront construct
+        # Create CloudFront construct – WAF ARN injected from us-east-1 WAF stack
         self.cloudfront_construct = CloudFrontVpcOriginConstruct(
             self,
             "CloudFrontVpcOrigin",
             project_name=project_name,
             load_balancer=ui_fargate_service.load_balancer,
             access_logs_bucket=self.access_logs_bucket,
+            web_acl_arn=web_acl_arn,
             prefix_lists=ui_prefix_list,
             geo_restriction_countries=geo_restriction_countries,
-            price_class=cloudfront_price_class
+            price_class=cloudfront_price_class,
         )
         
         # Store CloudFront distribution reference

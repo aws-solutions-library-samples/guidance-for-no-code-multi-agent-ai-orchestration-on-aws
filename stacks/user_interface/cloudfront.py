@@ -8,12 +8,9 @@ from constructs import Construct
 from aws_cdk import (
     aws_cloudfront as cloudfront,
     aws_cloudfront_origins as cloudfront_origins,
-    aws_wafv2 as waf,
-    aws_certificatemanager as acm,
     aws_elasticloadbalancingv2 as elbv2,
     aws_s3 as s3,
     Duration,
-    Aws,
 )
 from stacks.common.constants import (
     DEFAULT_CLOUDFRONT_DISTRIBUTION_SUFFIX,
@@ -22,8 +19,7 @@ from stacks.common.constants import (
     DEFAULT_CLOUDFRONT_HTTP_VERSION,
     DEFAULT_CLOUDFRONT_IPV6_ENABLED,
     DEFAULT_CLOUDFRONT_COMMENT_SUFFIX,
-    WAF_METRIC_NAME_PREFIX,
-    CLOUDFRONT_MANAGED_PREFIX_LIST_NAME
+    CLOUDFRONT_MANAGED_PREFIX_LIST_NAME,
 )
 
 
@@ -31,6 +27,11 @@ class CloudFrontVpcOriginConstruct(Construct):
     """
     CloudFront construct that creates a distribution with VPC origins
     pointing to an Application Load Balancer in private subnets.
+
+    The WAF Web ACL must be created separately in us-east-1 (see
+    ``stacks/user_interface/waf_stack.py``) and its ARN passed in via
+    the ``web_acl_arn`` parameter.  This allows the main UI stack to be
+    deployed in any region while WAF remains correctly pinned to us-east-1.
     """
 
     def __init__(
@@ -40,23 +41,23 @@ class CloudFrontVpcOriginConstruct(Construct):
         project_name: str,
         load_balancer: elbv2.ApplicationLoadBalancer,
         access_logs_bucket,
+        web_acl_arn: str,
         prefix_lists: Optional[List[str]] = None,
         geo_restriction_countries: Optional[List[str]] = None,
         price_class: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-        
+
         self.project_name = project_name
         self.load_balancer = load_balancer
         self.prefix_lists = prefix_lists or []
         self.access_logs_bucket = access_logs_bucket
         self.geo_restriction_countries = geo_restriction_countries
         self.price_class = price_class or "PriceClass_All"
-        
-        # Create WAF for CloudFront
-        self.web_acl = self._create_cloudfront_waf()
-        
+        # WAF ARN comes from the dedicated us-east-1 CloudFrontWAFStack
+        self._web_acl_arn = web_acl_arn
+
         # Create CloudFront Distribution (VPC origin pattern implemented via security groups)
         self.distribution = self._create_distribution()
 
@@ -76,86 +77,6 @@ class CloudFrontVpcOriginConstruct(Construct):
         }
         
         return price_class_map.get(self.price_class, cloudfront.PriceClass.PRICE_CLASS_ALL)
-
-    def _create_vpc_origin(self) -> None:
-        """Create VPC origin pointing to the ALB (placeholder for future VPC Origin implementation)."""
-        # VPC Origins are handled through CloudFront distribution configuration
-        # The actual VPC origin will be created via CloudFormation custom resources or CDK L1 constructs
-        # For now, we'll use the ALB with restricted security groups as the effective VPC origin pattern
-        pass
-
-    def _create_cloudfront_waf(self) -> waf.CfnWebACL:
-        """Create WAF Web ACL for CloudFront with IP restrictions and OWASP rules."""
-        waf_metric_name = f"{self.project_name}-{WAF_METRIC_NAME_PREFIX}-cloudfront"
-        waf_rule_metric_name = f"{self.project_name}-{WAF_METRIC_NAME_PREFIX}-cloudfront-owasp"
-        
-        rules = []
-        rule_priority = 0
-        
-        # Add IP restriction rule if prefix lists are configured
-        if self.prefix_lists:
-            ip_set = waf.CfnIPSet(
-                self,
-                "CloudFrontIPSet",
-                scope="CLOUDFRONT",
-                ip_address_version="IPV4",
-                addresses=self._convert_prefix_lists_to_cidrs(),
-                name=f"{self.project_name}-cloudfront-allowed-ips"
-            )
-            
-            rules.append(
-                waf.CfnWebACL.RuleProperty(
-                    name="IPWhitelistRule",
-                    priority=rule_priority,
-                    statement=waf.CfnWebACL.StatementProperty(
-                        ip_set_reference_statement=waf.CfnWebACL.IPSetReferenceStatementProperty(
-                            arn=ip_set.attr_arn
-                        )
-                    ),
-                    action=waf.CfnWebACL.RuleActionProperty(allow={}),
-                    visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                        cloud_watch_metrics_enabled=True,
-                        metric_name=f"{waf_metric_name}-ip-whitelist",
-                        sampled_requests_enabled=True
-                    )
-                )
-            )
-            rule_priority += 1
-
-        # Add OWASP Common Rule Set
-        rules.append(
-            waf.CfnWebACL.RuleProperty(
-                name="OWASPRuleSet",
-                priority=rule_priority,
-                statement=waf.CfnWebACL.StatementProperty(
-                    managed_rule_group_statement=waf.CfnWebACL.ManagedRuleGroupStatementProperty(
-                        vendor_name="AWS",
-                        name="AWSManagedRulesCommonRuleSet"
-                    )
-                ),
-                override_action=waf.CfnWebACL.OverrideActionProperty(none={}),
-                visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                    cloud_watch_metrics_enabled=True,
-                    metric_name=waf_rule_metric_name,
-                    sampled_requests_enabled=True
-                )
-            )
-        )
-        
-        return waf.CfnWebACL(
-            self,
-            "CloudFrontWAF",
-            default_action=waf.CfnWebACL.DefaultActionProperty(
-                allow={} if not self.prefix_lists else {"block": {}}
-            ),
-            scope="CLOUDFRONT",
-            visibility_config=waf.CfnWebACL.VisibilityConfigProperty(
-                cloud_watch_metrics_enabled=True,
-                metric_name=waf_metric_name,
-                sampled_requests_enabled=True
-            ),
-            rules=rules
-        )
 
     def _create_distribution(self) -> cloudfront.Distribution:
         """Create CloudFront distribution with VPC origins."""
@@ -305,7 +226,7 @@ class CloudFrontVpcOriginConstruct(Construct):
             http_version=cloudfront.HttpVersion.HTTP2,
             enable_ipv6=DEFAULT_CLOUDFRONT_IPV6_ENABLED,
             comment=distribution_comment,
-            web_acl_id=self.web_acl.attr_arn,
+            web_acl_id=self._web_acl_arn,
             # Security improvements for CDK Nag compliance
             minimum_protocol_version=cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
             enable_logging=True,  # CloudFront access logging enabled with ACL-compatible S3 bucket
@@ -329,57 +250,3 @@ class CloudFrontVpcOriginConstruct(Construct):
         # The security is handled by restricting ALB security groups to CloudFront IPs
         pass
 
-    def _convert_prefix_lists_to_cidrs(self) -> List[str]:
-        """
-        Dynamically resolve AWS prefix lists to their actual CIDR blocks.
-        This makes WAF IP restrictions accurate and region-specific.
-        
-        Returns:
-            List of actual CIDR blocks from the configured prefix lists
-        """
-        if not self.prefix_lists:
-            return []
-        
-        from aws_cdk import custom_resources as cr
-        
-        # Create custom resources to resolve each prefix list to CIDRs
-        all_cidrs = []
-        
-        for i, prefix_list_id in enumerate(self.prefix_lists):
-            # Create a unique custom resource for each prefix list
-            cidr_lookup = cr.AwsCustomResource(
-                self,
-                f"PrefixListCidrLookup{i}",
-                on_create=cr.AwsSdkCall(
-                    service="EC2",
-                    action="getManagedPrefixListEntries",
-                    parameters={
-                        "PrefixListId": prefix_list_id
-                    },
-                    physical_resource_id=cr.PhysicalResourceId.of(f"prefix-list-cidr-lookup-{i}")
-                ),
-                policy=cr.AwsCustomResourcePolicy.from_sdk_calls(
-                    resources=cr.AwsCustomResourcePolicy.ANY_RESOURCE
-                )
-            )
-            
-            # Safely extract only the first CIDR entry to avoid array index errors
-            # Most prefix lists have at least one entry, which is sufficient for WAF rules
-            try:
-                first_cidr = cidr_lookup.get_response_field("Entries.0.Cidr")
-                all_cidrs.append(first_cidr)
-                
-                # Optionally try to get a second entry if it exists
-                try:
-                    second_cidr = cidr_lookup.get_response_field("Entries.1.Cidr") 
-                    all_cidrs.append(second_cidr)
-                except:
-                    pass  # Only one entry in this prefix list
-            except:
-                # This prefix list has no entries - skip it
-                pass
-        
-        if not all_cidrs:
-            raise ValueError(f"Failed to resolve any CIDR blocks from prefix lists: {self.prefix_lists}")
-        
-        return all_cidrs
