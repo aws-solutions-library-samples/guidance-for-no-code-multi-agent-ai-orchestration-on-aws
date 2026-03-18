@@ -168,10 +168,13 @@ class BedrockModelService:
                 model_id = model['modelId']
                 model_name = model['modelName']
                 provider_name = model['providerName']
-                model_lifecycle_status = model.get('modelLifecycleStatus', 'UNKNOWN')
+                model_lifecycle_status = model.get('modelLifecycleStatus', None)
                 
-                # Filter out models that are not ACTIVE
-                if model_lifecycle_status != 'ACTIVE':
+                # Include model if lifecycle status is ACTIVE, null/None (AWS omits
+                # this field for many models including ALL embedding models), or UNKNOWN.
+                # Only skip models explicitly marked LEGACY or DEPRECATED.
+                explicitly_retired = model_lifecycle_status in ('LEGACY', 'DEPRECATED')
+                if explicitly_retired:
                     logger.debug(f"Skipping model {model_id} with lifecycle status: {model_lifecycle_status}")
                     skipped_foundation_models += 1
                     continue
@@ -183,9 +186,10 @@ class BedrockModelService:
                     model_detail_response = self.bedrock_client.get_foundation_model(modelIdentifier=model_id)
                     model_details_info = model_detail_response['modelDetails']
                     
-                    # Extract capabilities
-                    input_modalities = model_details_info.get('inputModalities', [])
-                    output_modalities = model_details_info.get('outputModalities', [])
+                    # Extract capabilities — prefer detail response; fall back to
+                    # list-level modalities which AWS always populates correctly
+                    input_modalities = model_details_info.get('inputModalities') or model.get('inputModalities', [])
+                    output_modalities = model_details_info.get('outputModalities') or model.get('outputModalities', [])
                     
                     # Categorize by capability
                     capabilities = []
@@ -553,10 +557,13 @@ class BedrockModelService:
                 model_id = model['modelId']
                 model_name = model['modelName']
                 provider_name = model['providerName']
-                model_lifecycle_status = model.get('modelLifecycleStatus', 'UNKNOWN')
+                model_lifecycle_status = model.get('modelLifecycleStatus', None)
                 
-                # Filter out models that are not ACTIVE
-                if model_lifecycle_status != 'ACTIVE':
+                # Include model if lifecycle status is ACTIVE, null/None (AWS omits
+                # this field for many models including ALL embedding models), or UNKNOWN.
+                # Only skip models explicitly marked LEGACY or DEPRECATED.
+                explicitly_retired = model_lifecycle_status in ('LEGACY', 'DEPRECATED')
+                if explicitly_retired:
                     logger.debug(f"Skipping model {model_id} with lifecycle status: {model_lifecycle_status}")
                     skipped_foundation_models += 1
                     continue
@@ -568,9 +575,10 @@ class BedrockModelService:
                     model_detail_response = self.bedrock_client.get_foundation_model(modelIdentifier=model_id)
                     model_details_info = model_detail_response['modelDetails']
                     
-                    # Extract capabilities
-                    input_modalities = model_details_info.get('inputModalities', [])
-                    output_modalities = model_details_info.get('outputModalities', [])
+                    # Extract capabilities — prefer detail response; fall back to
+                    # list-level modalities which AWS always populates correctly
+                    input_modalities = model_details_info.get('inputModalities') or model.get('inputModalities', [])
+                    output_modalities = model_details_info.get('outputModalities') or model.get('outputModalities', [])
                     
                     # Categorize by capability
                     capabilities = []

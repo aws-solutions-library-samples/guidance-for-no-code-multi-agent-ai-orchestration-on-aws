@@ -1130,10 +1130,23 @@ class FormSchemaRegistry:
         # Get dynamic model options from BedrockModelService
         bedrock_service = BedrockModelService()
         
+        # Static fallback embedding models — always populated even when AWS API unavailable
+        _static_embedding_fallbacks = [
+            SelectOption(value="amazon.titan-embed-text-v2:0", label="Amazon Titan Embed Text v2 (Embedding)"),
+            SelectOption(value="amazon.titan-embed-text-v1:0", label="Amazon Titan Embed Text v1 (Embedding)"),
+            SelectOption(value="amazon.titan-embed-image-v1:0", label="Amazon Titan Embed Image v1 (Embedding)"),
+            SelectOption(value="cohere.embed-english-v3:0", label="Cohere Embed English v3 (Embedding)"),
+            SelectOption(value="cohere.embed-multilingual-v3:0", label="Cohere Embed Multilingual v3 (Embedding)"),
+        ]
+
         # Generate dynamic options for different model categories
         main_model_options = bedrock_service.generate_form_schema_options("text_generation")
         judge_model_options = [SelectOption(value="", label="Use Main Model")] + bedrock_service.generate_form_schema_options("text_generation")
-        embedding_model_options = [SelectOption(value="", label="No Embedding Model")] + bedrock_service.generate_form_schema_options("text_embedding")
+
+        # Build embedding options: prefer live options from AWS, fall back to static list
+        dynamic_embedding_options = bedrock_service.generate_form_schema_options("text_embedding")
+        embedding_base_options = dynamic_embedding_options if dynamic_embedding_options else _static_embedding_fallbacks
+        embedding_model_options = [SelectOption(value="", label="No Embedding Model")] + embedding_base_options
         
         # Get default values from BedrockModelService
         default_recommendations = bedrock_service.get_recommended_models_for_agent_type("default")

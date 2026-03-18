@@ -1064,7 +1064,9 @@ const AgentWizard = ({
         // Map extracted model fields to expected API format - ensure proper types
         modelsConfig.model_id = modelsData.model_id || agentData.models_bedrock_model_id || 'anthropic.claude-3-5-sonnet-20241022-v2:0';
         modelsConfig.judge_model_id = modelsData.judge_model_id || agentData.models_bedrock_judge_model_id || modelsConfig.model_id;
-        modelsConfig.embedding_model_id = modelsData.embedding_model_id || agentData.models_bedrock_embedding_model_id || 'amazon.titan-embed-text-v2:0';
+        // Use the value the user explicitly selected; do NOT fall back to a hardcoded default
+        // so that an empty selection is preserved (means "no embedding model")
+        modelsConfig.embedding_model_id = modelsData.embedding_model_id || agentData.models_bedrock_embedding_model_id || '';
         
         // Handle multi-select model IDs for ALL agents
         if (modelsData.model_ids && Array.isArray(modelsData.model_ids)) {
