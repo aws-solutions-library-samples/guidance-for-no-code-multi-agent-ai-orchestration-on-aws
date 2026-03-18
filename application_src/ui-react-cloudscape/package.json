@@ -13,7 +13,7 @@
     "concurrently": "7.6.0",
     "cors": "^2.8.5",
     "dompurify": "^3.3.0",
-    "express": "^4.21.2",
+    "express": "^4.22.1",
     "express-session": "^1.18.2",
     "helmet": "^8.1.0",
     "i18next": "23.7.16",
