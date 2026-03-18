@@ -60,7 +60,8 @@
     "@smithy/config-resolver": "^4.4.0",
     "svgo": "^2.8.1",
     "underscore": "^1.13.8",
-    "serialize-javascript": "^6.0.2",
-    "@tootallnate/once": "^3.0.1"
+    "serialize-javascript": "^7.0.3",
+    "@tootallnate/once": "^3.0.1",
+    "bfj": "^9.1.3"
   }
 }
