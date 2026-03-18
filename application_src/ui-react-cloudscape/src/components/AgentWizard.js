@@ -1888,18 +1888,23 @@ const AgentWizard = ({
             <SpaceBetween size="m">
               <FormField
                 label="Agent Name"
-                constraintText="Required"
-                description="A unique identifier for your agent"
+                constraintText="Required — lowercase letters, numbers, hyphens and underscores only"
+                description="A unique identifier for your agent. Must be lowercase to ensure compatibility with AWS infrastructure."
                 errorText={validationErrors.agent_name}
               >
                 <Input
                   type="text"
                   value={agentData.agent_basic_agent_name || agentData.agent_name || ''}
-                  onChange={({ detail }) => updateAgentData({ 
-                    agent_basic_agent_name: detail.value,
-                    agent_name: detail.value 
-                  })}
-                  placeholder="Enter agent name"
+                  onChange={({ detail }) => {
+                    // Normalize to lowercase immediately so the name is always
+                    // compatible with VPC Lattice and CloudFormation constraints
+                    const normalizedName = detail.value.toLowerCase();
+                    updateAgentData({ 
+                      agent_basic_agent_name: normalizedName,
+                      agent_name: normalizedName
+                    });
+                  }}
+                  placeholder="Enter agent name (e.g. my-agent)"
                   disabled={mode === 'configure'}
                   invalid={!!validationErrors.agent_name}
                 />

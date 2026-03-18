@@ -91,10 +91,13 @@ async def deploy_agent_stack(
         HTTPException: If deployment fails
     """
     try:
-        logger.info(f"Deploying agent stack for agent: {request.agent_name}")
+        # Normalize agent name to lowercase to ensure compatibility with VPC Lattice
+        # and CloudFormation naming constraints (which require lowercase)
+        agent_name = request.agent_name.strip().lower()
+        logger.info(f"Deploying agent stack for agent: {agent_name}")
         
         # Validate agent name format
-        if not request.agent_name.replace('_', '').replace('-', '').isalnum():
+        if not agent_name.replace('_', '').replace('-', '').isalnum():
             raise HTTPException(
                 status_code=400,
                 detail="Agent name must contain only letters, numbers, underscores, and hyphens"
@@ -102,10 +105,10 @@ async def deploy_agent_stack(
         
         # Deploy the stack using CloudFormation template from S3
         # Use consistent naming pattern throughout all operations
-        new_stack_name = deployment_service.get_stack_name_from_agent(request.agent_name)
+        new_stack_name = deployment_service.get_stack_name_from_agent(agent_name)
         
         result = await deployment_service.create_agent_stack(
-            new_agent_name=request.agent_name,
+            new_agent_name=agent_name,
             new_stack_name=new_stack_name,
             model_config=None  # Will read from SSM
         )
@@ -337,12 +340,14 @@ async def create_agent(
         HTTPException: If validation fails or deployment initiation fails
     """
     try:
-        # Extract agent name from request
-        agent_name = request.get('new_agent_name')
-        if not agent_name:
+        # Extract agent name from request and normalize to lowercase to ensure
+        # compatibility with VPC Lattice and CloudFormation naming constraints
+        raw_agent_name = request.get('new_agent_name')
+        if not raw_agent_name:
             logger.error(f"new_agent_name not found in request. Available keys: {list(request.keys())}")
             raise HTTPException(status_code=400, detail="new_agent_name is required")
-            
+
+        agent_name = raw_agent_name.strip().lower()
         logger.info(f"Initiating CloudFormation stack deployment for agent: {agent_name}")
         
         # Validate agent name format

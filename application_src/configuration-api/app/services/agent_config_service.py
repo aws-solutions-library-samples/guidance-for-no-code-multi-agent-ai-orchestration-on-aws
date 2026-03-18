@@ -51,7 +51,7 @@ class AgentConfigService:
             ValueError: If agent_name is missing or invalid
             Exception: If save operation fails
         """
-        agent_name = config_request.agent_name.strip()
+        agent_name = config_request.agent_name.strip().lower()
         
         if not agent_name:
             raise ValueError("Agent name is required and cannot be empty")
