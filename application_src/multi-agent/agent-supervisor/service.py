@@ -179,9 +179,10 @@ Always strive to provide comprehensive and accurate responses by leveraging the 
                 region='us-east-1',
                 max_tokens=config.get('max_tokens', 4000),
                 temperature=config.get('temperature', 0.7),
-                top_p=config.get('top_p', 0.9)
+                # top_p intentionally omitted: newer models reject requests when
+                # both temperature and top_p are set simultaneously.
             )
-            
+
             self.supervisor_agent = Agent(
                 name=config.get('agent_name', 'Supervisor Agent'),
                 description=config.get('agent_description', 'A supervisor agent that coordinates with other specialized agents'),
@@ -305,9 +306,10 @@ Always strive to provide comprehensive and accurate responses by leveraging the 
                     region='us-east-1',
                     max_tokens=config.get('max_tokens', 4000),
                     temperature=config.get('temperature', 0.7),
-                    top_p=config.get('top_p', 0.9)
+                    # top_p intentionally omitted: newer models reject requests when
+                    # both temperature and top_p are set simultaneously.
                 )
-                
+
                 self.supervisor_agent = Agent(
                     name=config.get('agent_name', 'Supervisor Agent'),
                     description=config.get('agent_description', 'A supervisor agent that coordinates with other specialized agents'),
@@ -340,6 +342,61 @@ Always strive to provide comprehensive and accurate responses by leveraging the 
     async def get_agent(self):
         """Get the supervisor agent."""
         return self.supervisor_agent
+
+    async def create_request_agent(self):
+        """
+        Create a fresh, lightweight Agent instance for a single HTTP request.
+
+        The Strands Agent raises ConcurrencyException when stream_async() is
+        called on an Agent that is already processing a request.  To support
+        concurrent HTTP calls from FastAPI (even with a single uvicorn worker,
+        asyncio allows multiple coroutines to be in-flight) we create a new
+        Agent object per request that shares the same tools and model config
+        as the long-lived supervisor_agent but has its own isolated execution
+        state.
+
+        Returns:
+            A new Agent instance ready for a single streaming invocation, or
+            None if the service is not yet initialised.
+        """
+        if not self._initialization_complete or not self.provider:
+            logger.warning("Service not yet initialised; cannot create per-request agent")
+            return None
+
+        try:
+            config = self.get_supervisor_config()
+            system_prompt = self.get_supervisor_system_prompt()
+
+            # Reuse the shared model switching provider so all agents draw from
+            # the same cooldown/model-rotation state.
+            custom_bedrock_provider = ModelSwitchingBedrockProvider()
+            switching_model = custom_bedrock_provider.create_switching_model(
+                initial_model_id=config.get('model_id'),
+                region='us-east-1',
+                max_tokens=config.get('max_tokens', 4000),
+                temperature=config.get('temperature', 0.7),
+                # top_p intentionally omitted: newer models reject requests when
+                # both temperature and top_p are set simultaneously.
+            )
+
+            from strands import Agent
+            per_request_agent = Agent(
+                name=config.get('agent_name', 'Supervisor Agent'),
+                description=config.get(
+                    'agent_description',
+                    'A supervisor agent that coordinates with other specialized agents'
+                ),
+                system_prompt=system_prompt,
+                tools=self.provider.tools,
+                model=switching_model,
+            )
+
+            logger.debug("✅ Per-request agent created successfully")
+            return per_request_agent
+
+        except Exception:
+            logger.exception("❌ Failed to create per-request agent")
+            return None
     
     async def cleanup(self):
         """Cleanup service resources."""

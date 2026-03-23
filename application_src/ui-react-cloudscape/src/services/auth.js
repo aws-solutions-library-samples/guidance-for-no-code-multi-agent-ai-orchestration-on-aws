@@ -1,5 +1,5 @@
 import { Amplify } from 'aws-amplify';
-import { signIn, signOut, getCurrentUser, fetchAuthSession, confirmSignIn } from '@aws-amplify/auth';
+import { signIn, signOut, getCurrentUser, fetchAuthSession, confirmSignIn } from 'aws-amplify/auth';
 import { getApiUrl } from '../config/environment';
 
 class AuthService {
@@ -87,6 +87,20 @@ class AuthService {
       }
       
       const config = await response.json();
+
+      // Handle case where auth is disabled (e.g. missing SECRETS_MANAGER_ARN or wrong region)
+      if (config.enabled === false) {
+        throw new Error(
+          config.message ||
+          'Auth Token Provider not configured. Ensure AWS_REGION and SECRETS_MANAGER_ARN are set correctly in the ECS task.'
+        );
+      }
+
+      if (!config.userPoolId || !config.clientId) {
+        throw new Error(
+          `Incomplete Cognito configuration received – userPoolId: ${config.userPoolId}, clientId: ${config.clientId}. Check Secrets Manager ARN and region.`
+        );
+      }
       
       return {
         userPoolId: config.userPoolId,

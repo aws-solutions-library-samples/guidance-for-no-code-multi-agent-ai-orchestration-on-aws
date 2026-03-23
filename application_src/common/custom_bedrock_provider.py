@@ -69,13 +69,17 @@ class CustomBedrockModel(Model):
         import os
         region = os.environ.get('AWS_REGION', os.environ.get('AWS_DEFAULT_REGION', 'us-east-1'))
         
-        # Set defaults for any missing configuration
+        # Set defaults for any missing configuration.
+        # top_p is intentionally None by default: newer models (e.g. Claude Opus 4,
+        # Amazon Nova Premier) raise ValidationException when both temperature AND
+        # top_p are provided simultaneously.  Callers can still set top_p explicitly
+        # if they need it; it will be included only when non-None.
         defaults = {
             'model_id': model_id,
             'region': region,
             'max_tokens': 4000,
             'temperature': 0.7,
-            'top_p': 0.9
+            'top_p': None,
         }
         
         # Override defaults with provided config
@@ -268,7 +272,33 @@ class CustomBedrockModel(Model):
     ) -> dict[str, Any]:
         """Format request body for Bedrock converse_stream API (following official SDK pattern)."""
         bedrock_messages = self._format_messages_for_bedrock(messages)
-        
+
+        # Build inferenceConfig defensively.
+        #
+        # Many newer Bedrock models (Claude Opus 4, Amazon Nova Premier, …) raise:
+        #   ValidationException: `temperature` and `top_p` cannot both be specified
+        #
+        # The Bedrock Converse API accepts EITHER temperature OR topP, not both.
+        # We always prefer temperature because it is the more commonly tuned parameter.
+        # If a user configures top_p without temperature, we send only top_p.
+        # If neither is set, inferenceConfig will only contain maxTokens.
+        temperature = self.config.get("temperature")
+        top_p = self.config.get("top_p")
+
+        # Mutually exclusive: send temperature if present, else top_p if present.
+        if temperature is not None:
+            sampling_params = [("temperature", temperature)]
+        elif top_p is not None:
+            sampling_params = [("topP", top_p)]
+        else:
+            sampling_params = []
+
+        inference_config = {
+            key: value
+            for key, value in [("maxTokens", self.config.get("max_tokens"))] + sampling_params
+            if value is not None
+        }
+
         # Follow the exact pattern from official Strands SDK
         request = {
             "modelId": self.config.get('model_id'),
@@ -287,17 +317,9 @@ class CustomBedrockModel(Model):
                 }
                 if tool_specs else {}
             ),
-            "inferenceConfig": {
-                key: value
-                for key, value in [
-                    ("maxTokens", self.config.get("max_tokens")),
-                    ("temperature", self.config.get("temperature")),
-                    ("topP", self.config.get("top_p")),
-                ]
-                if value is not None
-            },
+            "inferenceConfig": inference_config,
         }
-        
+
         return request
     
     @override

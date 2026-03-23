@@ -4,7 +4,7 @@
 # Stage 1: System base with common tools (rarely changes)
 # checkov:skip=CKV_DOCKER_2:Base image for build stages only, health checks added in service-specific Dockerfiles
 # checkov:skip=CKV_DOCKER_3:Non-root user configured in individual service Dockerfiles for proper port/permissions
-FROM python:3.12-slim@sha256:b9007ae549da50a6c72d345366d36874fee8de37b833de178eb488143f33e4ca as system-base
+FROM --platform=linux/arm64 python:3.12-slim@sha256:b9007ae549da50a6c72d345366d36874fee8de37b833de178eb488143f33e4ca as system-base
 
 # Set environment variables early to maximize caching
 ENV PYTHONDONTWRITEBYTECODE=1 \

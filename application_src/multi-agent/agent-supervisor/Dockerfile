@@ -3,7 +3,7 @@
 
 # Stage 1: Dependencies layer (cached when requirements don't change)
 # Using pinned Python 3.12 slim image with latest security patches
-FROM python:3.12-slim@sha256:b9007ae549da50a6c72d345366d36874fee8de37b833de178eb488143f33e4ca as deps
+FROM --platform=linux/arm64 python:3.12-slim@sha256:b9007ae549da50a6c72d345366d36874fee8de37b833de178eb488143f33e4ca as deps
 
 # Set environment variables early to maximize caching
 ENV PYTHONDONTWRITEBYTECODE=1 \

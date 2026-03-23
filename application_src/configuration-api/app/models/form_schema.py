@@ -1042,20 +1042,6 @@ class FormSchemaRegistry:
                         rows=8
                     ),
                     FormField(
-                        name="region_name",
-                        type=FieldType.SELECT,
-                        label="AWS Region",
-                        help_text="AWS region for model and service calls",
-                        required=True,
-                        default_value="us-east-1",
-                        options=[
-                            SelectOption(value="us-east-1", label="US East (N. Virginia)"),
-                            SelectOption(value="us-west-2", label="US West (Oregon)"),
-                            SelectOption(value="eu-west-1", label="Europe (Ireland)"),
-                            SelectOption(value="ap-southeast-1", label="Asia Pacific (Singapore)")
-                        ]
-                    ),
-                    FormField(
                         name="streaming",
                         type=FieldType.CHECKBOX,
                         label="Enable Streaming",
@@ -1212,7 +1198,9 @@ class FormSchemaRegistry:
                         label="Multiple Models for Switching",
                         help_text="Select multiple models for automatic switching when throttling occurs (dynamically loaded from AWS Bedrock API)",
                         required=False,
-                        default_value=bedrock_service.default_models.get("fallback_models", []),
+                        # Default to the first 5 models from the same live list used by Main Model,
+                        # so the dropdown always pre-selects valid, non-LEGACY models.
+                        default_value=[m["value"] for m in main_model_options[:5]],
                         max_selections=5,
                         options=main_model_options  # Use same options as main model for multi-select
                     )

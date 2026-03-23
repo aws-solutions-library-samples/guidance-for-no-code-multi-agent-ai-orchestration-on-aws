@@ -217,6 +217,7 @@ class WebAppStack(FargateServiceStack, CognitoMixin, LoadBalancerLoggingMixin):
                     "SUPERVISOR_AGENT_ENDPOINT": f"http://{supervisor_agent_url}" if not supervisor_agent_url.startswith(('http://', 'https://')) else supervisor_agent_url,
                     "SECRETS_MANAGER_ARN": cognito_resources.secret_arn,
                     "REGION": self.region,
+                    "AWS_REGION": self.region,
                     "PROJECT_NAME": project_name,
                     "RATE_LIMIT_WINDOW_MS": str(self.get_optional_config('RateLimitWindowMs', 900000)),
                     "RATE_LIMIT_MAX_REQUESTS": str(self.get_optional_config('RateLimitMaxRequests', 100)),

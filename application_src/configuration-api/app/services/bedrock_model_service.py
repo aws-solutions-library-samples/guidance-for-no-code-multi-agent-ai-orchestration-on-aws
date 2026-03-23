@@ -14,6 +14,93 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger(__name__)
 
 
+# Regex to detect context-window variant model IDs such as:
+#   amazon.nova-lite-v1:0:24k   amazon.nova-pro-v1:0:300k   amazon.nova-2-lite-v1:0:256k
+# These IDs exist in the list response but are NOT valid invocation targets —
+# calling Converse on them returns ResourceNotFoundException("Model not found").
+# Only the base ID (e.g. amazon.nova-lite-v1:0) is a valid invocation target.
+import re as _re
+_CONTEXT_VARIANT_RE = _re.compile(
+    r':\d+k$'          # ends in :<number>k  (e.g. :24k, :256k, :300k, :1000k)
+    r'|:mm$'           # ends in :mm (multimodal context variant)
+)
+
+# Minimal list of model ID prefixes that must be hardcoded because the AWS
+# list_foundation_models API provides no distinguishing programmatic signal:
+#
+#   twelvelabs.  — video-understanding models; VIDEO in inputModalities is too
+#                  broad a signal (50+ valid multimodal models also have IMAGE input).
+#   amazon.titan-tg1-large — EOL at runtime ("This model version has reached the
+#                  end of life") but the list API shows no endOfLifeTime and
+#                  responseStreamingSupported=True, so no API signal is available.
+#
+# NOTE: cohere.rerank-* was previously here but is now caught by the
+# responseStreamingSupported=False programmatic check below.
+_HARDCODED_EXCLUDED_MODEL_PREFIXES = (
+    'twelvelabs.',              # video-only models, no Converse support
+    'amazon.titan-tg1-large',   # EOL at runtime, no API signal available
+)
+
+
+def _is_context_variant(model_id: str) -> bool:
+    """Return True for context-window variant IDs that cannot be invoked directly."""
+    return bool(_CONTEXT_VARIANT_RE.search(model_id))
+
+
+def _should_exclude_model(model_id: str, response_streaming_supported: bool) -> bool:
+    """
+    Return True for models that should be excluded from the UI dropdown.
+
+    Uses programmatic API signals where possible:
+      - responseStreamingSupported=False  → reranking or other non-conversational
+        model (e.g. cohere.rerank-*).  All models used via converse_stream require
+        streaming support.
+
+    Falls back to a minimal hardcoded prefix list only for models where the AWS
+    list_foundation_models API provides no useful distinguishing signal.
+    """
+    # Programmatic signal: streaming is required for converse_stream.
+    if not response_streaming_supported:
+        return True
+    # Minimal hardcoded exclusions where no API signal is available.
+    if model_id.startswith(_HARDCODED_EXCLUDED_MODEL_PREFIXES):
+        return True
+    return False
+
+
+def _is_legacy_model_error(error: Exception) -> bool:
+    """
+    Detect errors indicating a model is marked Legacy by the provider AND has not
+    been actively used in the last 15 days.
+
+    AWS raises ResourceNotFoundException with a specific message at inference time
+    for such models.  The same pattern can surface during get_foundation_model
+    calls.  When detected we skip the model entirely so it never appears in the
+    UI dropdown or model cache.
+
+    Example message:
+        "Access denied. This Model is marked by provider as Legacy and you have
+         not been actively using the model in the last 15 days. Please upgrade to
+         an active model on Amazon Bedrock"
+    """
+    if isinstance(error, ClientError):
+        error_code = error.response.get('Error', {}).get('Code', '')
+        error_message = str(error).lower()
+
+        if error_code == 'ResourceNotFoundException':
+            legacy_indicators = [
+                'marked by provider as legacy',
+                'legacy',
+                'not been actively using the model',
+                'upgrade to an active model',
+            ]
+            for indicator in legacy_indicators:
+                if indicator in error_message:
+                    return True
+
+    return False
+
+
 # Global model cache - populated at application startup
 _global_model_cache = None
 _cache_lock = None
@@ -168,19 +255,35 @@ class BedrockModelService:
                 model_id = model['modelId']
                 model_name = model['modelName']
                 provider_name = model['providerName']
-                model_lifecycle_status = model.get('modelLifecycleStatus', None)
-                
-                # Include model if lifecycle status is ACTIVE, null/None (AWS omits
-                # this field for many models including ALL embedding models), or UNKNOWN.
-                # Only skip models explicitly marked LEGACY or DEPRECATED.
-                explicitly_retired = model_lifecycle_status in ('LEGACY', 'DEPRECATED')
-                if explicitly_retired:
-                    logger.debug(f"Skipping model {model_id} with lifecycle status: {model_lifecycle_status}")
+                # AWS returns modelLifecycle.status ('ACTIVE' | 'LEGACY'), not a flat
+                # 'modelLifecycleStatus' key.  Read it correctly from the nested dict.
+                model_lifecycle_status = model.get('modelLifecycle', {}).get('status', 'ACTIVE')
+
+                # Only show ACTIVE models in the UI.  LEGACY models may still be
+                # callable for existing users but should not appear as new options.
+                if model_lifecycle_status == 'LEGACY':
+                    logger.debug(f"Skipping LEGACY model {model_id}")
                     skipped_foundation_models += 1
                     continue
-                
+
+                # Skip context-window variants (e.g. amazon.nova-lite-v1:0:24k) —
+                # these IDs are not valid invocation targets; only the base ID is.
+                if _is_context_variant(model_id):
+                    logger.debug(f"Skipping context-window variant {model_id}")
+                    skipped_foundation_models += 1
+                    continue
+
+                # Skip non-conversational models using programmatic signals where
+                # possible (responseStreamingSupported=False) and a minimal
+                # hardcoded list for models with no distinguishing API signal.
+                response_streaming = model.get('responseStreamingSupported', True)
+                if _should_exclude_model(model_id, response_streaming):
+                    logger.debug(f"Skipping non-conversational/EOL model {model_id}")
+                    skipped_foundation_models += 1
+                    continue
+
                 active_foundation_models += 1
-                
+
                 # Get detailed model information for foundation models
                 try:
                     model_detail_response = self.bedrock_client.get_foundation_model(modelIdentifier=model_id)
@@ -231,10 +334,24 @@ class BedrockModelService:
                         'response_streaming_supported': model_details_info.get('responseStreamingSupported', False),
                         'model_lifecycle_status': model_lifecycle_status
                     }
-                    
+
                 except Exception as detail_error:
+                    # If the provider marked this model as Legacy and it hasn't been
+                    # used in the last 15 days, AWS returns ResourceNotFoundException
+                    # at detail-fetch time even though list_foundation_models still
+                    # returns it as ACTIVE.  Skip it completely so it never shows up
+                    # in UI dropdowns or the model cache.
+                    if _is_legacy_model_error(detail_error):
+                        logger.warning(
+                            f"Skipping legacy/inactive model {model_id} "
+                            f"(ResourceNotFoundException during detail fetch): {detail_error}"
+                        )
+                        skipped_foundation_models += 1
+                        active_foundation_models -= 1  # correct the earlier increment
+                        continue  # do NOT add to model_details or all_models
                     logger.warning(f"Could not get details for model {model_id}: {detail_error}")
-                    # Add basic info even if details fail
+                    # Add basic info for non-legacy detail failures so the model
+                    # still appears in the cache with sensible defaults.
                     model_details[model_id] = {
                         'model_id': model_id,
                         'model_name': model_name,
@@ -248,13 +365,17 @@ class BedrockModelService:
                         'response_streaming_supported': True,
                         'model_lifecycle_status': model_lifecycle_status
                     }
-                
+
                 # Add to all models list
                 models_by_capability['all_models'].append(model_details[model_id])
             
             # Log filtering summary for foundation models
-            logger.info(f"Foundation model filtering summary: {active_foundation_models} ACTIVE models cached, {skipped_foundation_models} non-ACTIVE models skipped (out of {total_foundation_models} total)")
-            
+            logger.info(
+                f"Foundation model filtering summary: {active_foundation_models} ACTIVE models cached, "
+                f"{skipped_foundation_models} non-ACTIVE/legacy models skipped "
+                f"(out of {total_foundation_models} total)"
+            )
+
             # Step 2: Fetch cross-region inference profiles
             logger.info("Fetching cross-region inference profiles...")
             try:
@@ -557,29 +678,45 @@ class BedrockModelService:
                 model_id = model['modelId']
                 model_name = model['modelName']
                 provider_name = model['providerName']
-                model_lifecycle_status = model.get('modelLifecycleStatus', None)
-                
-                # Include model if lifecycle status is ACTIVE, null/None (AWS omits
-                # this field for many models including ALL embedding models), or UNKNOWN.
-                # Only skip models explicitly marked LEGACY or DEPRECATED.
-                explicitly_retired = model_lifecycle_status in ('LEGACY', 'DEPRECATED')
-                if explicitly_retired:
-                    logger.debug(f"Skipping model {model_id} with lifecycle status: {model_lifecycle_status}")
+                # AWS returns modelLifecycle.status ('ACTIVE' | 'LEGACY'), not a flat
+                # 'modelLifecycleStatus' key.  Read it correctly from the nested dict.
+                model_lifecycle_status = model.get('modelLifecycle', {}).get('status', 'ACTIVE')
+
+                # Only show ACTIVE models in the UI.  LEGACY models may still be
+                # callable for existing users but should not appear as new options.
+                if model_lifecycle_status == 'LEGACY':
+                    logger.debug(f"Skipping LEGACY model {model_id}")
                     skipped_foundation_models += 1
                     continue
-                
+
+                # Skip context-window variants (e.g. amazon.nova-lite-v1:0:24k) —
+                # these IDs are not valid invocation targets; only the base ID is.
+                if _is_context_variant(model_id):
+                    logger.debug(f"Skipping context-window variant {model_id}")
+                    skipped_foundation_models += 1
+                    continue
+
+                # Skip non-conversational models using programmatic signals where
+                # possible (responseStreamingSupported=False) and a minimal
+                # hardcoded list for models with no distinguishing API signal.
+                response_streaming = model.get('responseStreamingSupported', True)
+                if _should_exclude_model(model_id, response_streaming):
+                    logger.debug(f"Skipping non-conversational/EOL model {model_id}")
+                    skipped_foundation_models += 1
+                    continue
+
                 active_foundation_models += 1
-                
+
                 # Get detailed model information
                 try:
                     model_detail_response = self.bedrock_client.get_foundation_model(modelIdentifier=model_id)
                     model_details_info = model_detail_response['modelDetails']
-                    
+
                     # Extract capabilities — prefer detail response; fall back to
                     # list-level modalities which AWS always populates correctly
                     input_modalities = model_details_info.get('inputModalities') or model.get('inputModalities', [])
                     output_modalities = model_details_info.get('outputModalities') or model.get('outputModalities', [])
-                    
+
                     # Categorize by capability
                     capabilities = []
                     if 'TEXT' in input_modalities and 'TEXT' in output_modalities:
@@ -589,7 +726,7 @@ class BedrockModelService:
                             'display_name': f"{provider_name} {model_name}",
                             'provider': provider_name.lower()
                         })
-                    
+
                     if 'TEXT' in input_modalities and 'EMBEDDING' in output_modalities:
                         capabilities.append('text_embedding')
                         models_by_capability['text_embedding'].append({
@@ -597,7 +734,7 @@ class BedrockModelService:
                             'display_name': f"{provider_name} {model_name} (Embedding)",
                             'provider': provider_name.lower()
                         })
-                    
+
                     if len(input_modalities) > 1 or len(output_modalities) > 1:
                         capabilities.append('multimodal')
                         models_by_capability['multimodal'].append({
@@ -605,7 +742,7 @@ class BedrockModelService:
                             'display_name': f"{provider_name} {model_name} (Multimodal)",
                             'provider': provider_name.lower()
                         })
-                    
+
                     # Store detailed information
                     model_details[model_id] = {
                         'model_id': model_id,
@@ -620,10 +757,22 @@ class BedrockModelService:
                         'response_streaming_supported': model_details_info.get('responseStreamingSupported', False),
                         'model_lifecycle_status': model_lifecycle_status
                     }
-                    
+
                 except Exception as detail_error:
+                    # Legacy/inactive models surface a ResourceNotFoundException here
+                    # even though list_foundation_models still returns them as ACTIVE.
+                    # Skip completely so they never appear in the UI or model cache.
+                    if _is_legacy_model_error(detail_error):
+                        logger.warning(
+                            f"Skipping legacy/inactive model {model_id} "
+                            f"(ResourceNotFoundException during detail fetch): {detail_error}"
+                        )
+                        skipped_foundation_models += 1
+                        active_foundation_models -= 1  # correct the earlier increment
+                        continue  # do NOT add to model_details or all_models
                     logger.warning(f"Could not get details for model {model_id}: {detail_error}")
-                    # Add basic info even if details fail
+                    # Add basic info for non-legacy detail failures so the model
+                    # still appears in the cache with sensible defaults.
                     model_details[model_id] = {
                         'model_id': model_id,
                         'model_name': model_name,
@@ -637,13 +786,17 @@ class BedrockModelService:
                         'response_streaming_supported': True,
                         'model_lifecycle_status': model_lifecycle_status
                     }
-                
+
                 # Add to all models list
                 models_by_capability['all_models'].append(model_details[model_id])
-            
+
             # Log filtering summary for foundation models
-            logger.info(f"Foundation model filtering summary: {active_foundation_models} ACTIVE models cached, {skipped_foundation_models} non-ACTIVE models skipped (out of {total_foundation_models} total)")
-            
+            logger.info(
+                f"Foundation model filtering summary: {active_foundation_models} ACTIVE models cached, "
+                f"{skipped_foundation_models} non-ACTIVE/legacy models skipped "
+                f"(out of {total_foundation_models} total)"
+            )
+
             # Cache results
             cache_result = {
                 'models_by_capability': models_by_capability,

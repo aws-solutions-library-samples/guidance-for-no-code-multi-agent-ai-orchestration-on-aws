@@ -366,17 +366,31 @@ Ensure the following service quotas are available:
 export CDK_DOCKER=podman
 ```
 
+### ⚠️ Architecture Requirement: ARM64 (linux/arm64)
+
+All container images and ECS Fargate tasks in this solution are built and deployed for **ARM64 (linux/arm64)** architecture. This matches AWS Graviton-based Fargate, which offers better price-performance.
+
+**Deploying from an ARM64 machine (Apple Silicon M1/M2/M3, AWS Graviton):**
+This is the recommended and fastest path. No additional steps are required.
+
+**Deploying from a non-ARM64 machine (Intel/AMD x86_64):**
+Docker and Podman can still build and push ARM64 images using QEMU emulation, but builds will be significantly slower. Before deploying, ensure multi-architecture emulation is enabled:
+
+```bash
+# Docker – enable QEMU emulation for ARM64 (one-time setup)
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+
+# Podman – enable QEMU emulation for ARM64 (one-time setup, on Linux hosts)
+sudo podman run --privileged --rm docker.io/tonistiigi/binfmt --install arm64
+```
+
+On **macOS with Docker Desktop or Podman Desktop**, QEMU emulation for ARM64 is bundled and enabled automatically — no extra setup is needed.
+
+> **Note**: CDK image asset builds (`cdk deploy`) and local `docker-compose up` runs will both invoke the ARM64 build path. Expect 2–5× longer build times on x86_64 hosts compared to native ARM64 hardware.
+
 ### AWS Services Setup
 
-#### 1. Enable Amazon Bedrock Model Access
-
-Navigate to Amazon Bedrock console and enable access to:
-- **Claude 3.5 Sonnet V2** (`anthropic.claude-3-5-sonnet-20241022-v2:0`)
-- **Claude Opus 4** (`us.anthropic.claude-opus-4-1-20250805-v1:0`) - if available in your region
-- **Titan Embeddings G1** (`amazon.titan-embed-text-v1`)
-- **Cohere Embed** (`cohere.embed-multilingual-v3`)
-
-#### 2. Configure External Services (Optional)
+#### 1. Configure External Services (Optional)
 
 - **Elasticsearch**: If using custom Elasticsearch, configure endpoint and API key
 - **Snowflake**: Set up account credentials for data warehouse integration
@@ -400,7 +414,7 @@ The following parameters **must** be configured before deployment:
 # Basic Infrastructure Settings
 StackName: your-unique-stack-name          # Must be unique in your AWS account
 RegionName: us-east-1                      # AWS region for deployment
-CertificateArn: arn:aws:acm:us-east-1:123456789:certificate/your-cert-id
+# CertificateArn: arn:aws:acm:us-east-1:123456789:certificate/your-cert-id  # Only required when UIAccessMode is "private"
 
 # Infrastructure Scaling
 MaxAZs: 2                                  # Number of Availability Zones

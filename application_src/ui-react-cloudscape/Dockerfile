@@ -2,13 +2,12 @@
 # Leverages automatic security updates and simplified maintenance
 
 # Stage 1: Base with Node.js 20 runtime from AL2023
-FROM amazonlinux:2023 as base
+FROM --platform=linux/arm64 amazonlinux:2023 as base
 
-# Install Node.js 20 and system dependencies  
+# Install Node.js 20 and system dependencies
 RUN dnf update -y && \
     dnf install -y \
-        nodejs \
-        npm \
+        nodejs20 \
         ca-certificates \
         shadow-utils \
         && \

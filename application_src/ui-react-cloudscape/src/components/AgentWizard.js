@@ -422,39 +422,38 @@ const AgentWizard = ({
       };
       
       // Load available agents if in configure mode.
-      // Use network discovery (agent-mapping) so that only agents which are actually
-      // deployed and reachable are shown — consistent with the Agent Network Topology view.
-      // SSM may contain entries for agents that were never deployed or were deleted.
+      // Rules:
+      //  1. Show ONLY agents that appear in the network map (actually deployed).
+      //  2. supervisor_agent is always guaranteed to be present — it is always deployed
+      //     but its /config/status endpoint may not return its name in the expected
+      //     format, so we add it explicitly.
+      //  3. If network discovery fails entirely, fall back to SSM list.
       let firstAgent = null;
       if (mode === 'configure') {
         try {
-          const mappingResponse = await withTimeout(configService.getAgentMapping(), 8000);
+          const mappingResponse = await withTimeout(configService.getAgentMapping(), 20000);
           const agentMapping = mappingResponse?.agent_mapping || {};
 
-          // Extract agent names that are active (successfully reachable on the network)
-          const deployedAgents = Object.values(agentMapping)
-            .filter(info => info.status === 'active' && info.agent_name)
-            .map(info => info.agent_name)
-            .filter((name, index, arr) => arr.indexOf(name) === index) // deduplicate
-            .sort();
+          // Extract agent names that the network identified (non-placeholder names)
+          const networkAgentNames = Object.values(agentMapping)
+            .filter(info => info.agent_name && info.agent_name !== 'Unknown Agent')
+            .map(info => info.agent_name);
 
-          if (deployedAgents.length > 0) {
-            setAvailableAgents(deployedAgents);
-            firstAgent = selectedAgentForConfig || deployedAgents[0];
+          // Always include supervisor_agent — it is always deployed and configurable
+          const agentsToShow = Array.from(
+            new Set(['supervisor_agent', ...networkAgentNames])
+          ).sort();
+
+          setAvailableAgents(agentsToShow);
+          if (agentsToShow.length > 0) {
+            firstAgent = agentsToShow.includes(selectedAgentForConfig)
+              ? selectedAgentForConfig
+              : agentsToShow[0];
             setSelectedAgentForConfig(firstAgent);
-          } else {
-            // If no active agents were found via network discovery (e.g. local dev without
-            // running containers), fall back to SSM list so the wizard remains usable.
-            const agents = await withTimeout(configService.listAvailableAgents(), 5000);
-            setAvailableAgents(agents || []);
-            if (agents && agents.length > 0) {
-              firstAgent = selectedAgentForConfig || agents[0];
-              setSelectedAgentForConfig(firstAgent);
-            }
           }
         } catch (agentError) {
-          console.error('Failed to load deployed agents from network, falling back to SSM list:', agentError);
-          // Graceful fallback to SSM list on any error
+          // Network call failed — fall back to SSM list so wizard remains usable
+          console.error('Network agent discovery failed, falling back to SSM list:', agentError);
           try {
             const agents = await withTimeout(configService.listAvailableAgents(), 5000);
             setAvailableAgents(agents || []);
@@ -464,7 +463,10 @@ const AgentWizard = ({
             }
           } catch (fallbackError) {
             console.error('SSM fallback also failed:', fallbackError);
-            setAvailableAgents([]);
+            // Last resort: at minimum show supervisor_agent
+            setAvailableAgents(['supervisor_agent']);
+            setSelectedAgentForConfig('supervisor_agent');
+            firstAgent = 'supervisor_agent';
           }
         }
       }
@@ -1958,32 +1960,6 @@ const AgentWizard = ({
                   placeholder="Enter agent description"
                   rows={3}
                   invalid={!!validationErrors.agent_description}
-                />
-              </FormField>
-
-              <FormField
-                label="AWS Region"
-                description="Select the AWS region for this agent"
-              >
-                <Select
-                  selectedOption={{ 
-                    label: agentData.agent_basic_region_name || agentData.region_name || 'us-east-1', 
-                    value: agentData.agent_basic_region_name || agentData.region_name || 'us-east-1' 
-                  }}
-                  onChange={({ detail }) => updateAgentData({ 
-                    agent_basic_region_name: detail.selectedOption.value,
-                    region_name: detail.selectedOption.value 
-                  })}
-                  options={[
-                    { label: 'us-east-1', value: 'us-east-1' },
-                    { label: 'us-east-2', value: 'us-east-2' },
-                    { label: 'us-west-1', value: 'us-west-1' },
-                    { label: 'us-west-2', value: 'us-west-2' },
-                    { label: 'eu-west-1', value: 'eu-west-1' },
-                    { label: 'eu-central-1', value: 'eu-central-1' },
-                    { label: 'ap-southeast-1', value: 'ap-southeast-1' },
-                    { label: 'ap-northeast-1', value: 'ap-northeast-1' }
-                  ]}
                 />
               </FormField>
 

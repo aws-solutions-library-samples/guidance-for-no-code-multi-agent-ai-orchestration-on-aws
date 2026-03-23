@@ -2,7 +2,7 @@
 # Leverages automatic security updates and simplified maintenance
 
 # Stage 1: Base with Python runtime from AL2023
-FROM amazonlinux:2023 as base
+FROM --platform=linux/arm64 amazonlinux:2023 as base
 
 # Install Python 3.11 (AL2023 default) and system dependencies
 RUN dnf update -y && \

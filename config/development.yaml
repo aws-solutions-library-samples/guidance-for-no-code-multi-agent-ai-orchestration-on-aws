@@ -10,7 +10,7 @@
 # Constraint source: ALB names (32 chars) - longest suffix (-generic-agent-api = 19 chars) = 13 max
 # Validation enforced in helper/config.py - see docs/PROJECT_NAME_VALIDATION.md
 ProjectName: ai-platform  # Single source of truth for all resource naming
-RegionName: us-east-1
+RegionName: us-west-2
 UIPrefixList: []
 DataTraceEnabled: True
 # CertificateArn: FILL_ME
