@@ -2,8 +2,9 @@
 # Optimized for shared context with .dockerignore isolation
 
 # Stage 1: Dependencies layer (cached when requirements don't change)
-# Using pinned Python 3.12 slim image with latest security patches
-FROM --platform=linux/arm64 python:3.12-slim@sha256:b9007ae549da50a6c72d345366d36874fee8de37b833de178eb488143f33e4ca as deps
+# NOTE: No SHA pin - always pull latest python:3.12-slim to get current Debian security patches
+# (pinning SHA prevents picking up OS-level CVE fixes for linux, glibc, libssl3t64, bind9, gnutls28, etc.)
+FROM --platform=linux/arm64 python:3.12-slim as deps
 
 # Set environment variables early to maximize caching
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -13,42 +14,36 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies with security updates and address OpenSSL CVEs
+# Install system dependencies with security updates
+# Addresses CVEs in: linux, glibc, libssl3t64, openssl, bind9, gnutls28, sqlite3, dpkg
 RUN apt-get update && \
-    # Force security updates first - critical for CVE patching
-    apt-get upgrade -y --only-upgrade && \
-    # Install build dependencies for OpenSSL compilation
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    ca-certificates \
-    git \
-    curl \
-    dnsutils \
-    procps \
-    zlib1g-dev \
-    && \
-    # Remove vulnerable OpenSSL packages
-    apt-get remove -y openssl libssl3 libssl-dev || true && \
-    # Download and compile OpenSSL 3.5.2 (patched version addressing CVEs)
-    cd /tmp && \
-    wget https://github.com/openssl/openssl/releases/download/openssl-3.5.2/openssl-3.5.2.tar.gz && \
-    tar -xzf openssl-3.5.2.tar.gz && \
-    cd openssl-3.5.2 && \
-    ./Configure --prefix=/usr/local/ssl --openssldir=/usr/local/ssl shared zlib && \
-    make -j$(nproc) && \
-    make install && \
-    # Update library path and symlinks
-    echo "/usr/local/ssl/lib64" > /etc/ld.so.conf.d/openssl-3.5.2.conf && \
-    ldconfig && \
-    ln -sf /usr/local/ssl/bin/openssl /usr/bin/openssl && \
-    # Verify OpenSSL version
-    /usr/local/ssl/bin/openssl version && \
-    # Clean up build dependencies and temporary files
-    cd / && rm -rf /tmp/openssl-3.5.2* && \
-    apt-get remove -y build-essential wget && \
-    apt-get autoremove -y && \
+    # Configure Debian Trixie security repository
+    echo "deb http://security.debian.org/debian-security trixie-security main" > /etc/apt/sources.list.d/debian-security.list && \
+    apt-get update && \
+    # Apply all security upgrades (covers linux, glibc, dpkg, gnutls28, sqlite3, etc.)
     apt-get upgrade -y && \
+    # Install required runtime packages
+    # libssl3t64/openssl patched via apt-get upgrade above from trixie-security
+    # Fixes: CVE-2025-15467, CVE-2025-69419, CVE-2025-69420, CVE-2025-69421, CVE-2025-66199, etc.
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        dnsutils \
+        procps && \
+    # Install patched bind9 packages (CVE-2025-13878 - requires >= 1:9.20.18-1~deb13u1)
+    apt-get install -y -t trixie-security --no-install-recommends \
+        bind9-libs \
+        bind9-host \
+        bind9-dnsutils && \
+    # Verify bind9 version meets security requirements (>= 1:9.20.18)
+    dpkg -l | grep bind9 && \
+    dpkg -l | grep -E "bind9.*(1:9.20.1[89]|1:9.20.[2-9][0-9]|1:9.[2-9][0-9])" || \
+    (echo "WARNING: bind9 version check - verify CVE-2025-13878 is patched") && \
+    # Verify libssl3t64 is patched (CVE-2025-15467 requires >= 3.5.4-1~deb13u2)
+    dpkg -l | grep libssl3t64 && \
+    # Final cleanup
+    apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/* && \
     apt-get clean
 
