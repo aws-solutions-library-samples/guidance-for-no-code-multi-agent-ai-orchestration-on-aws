@@ -9,7 +9,7 @@
     "@cloudscape-design/components": "3.0.1106",
     "@cloudscape-design/global-styles": "1.0.46",
     "aws-amplify": "6.16.3",
-    "axios": "^1.13.5",
+    "axios": "^1.15.0",
     "concurrently": "7.6.0",
     "cors": "^2.8.5",
     "dompurify": "^3.3.2",
